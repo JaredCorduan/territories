@@ -22,6 +22,7 @@ Animals never touch, not even diagonally.
 - A hint button that shows the next move and explains it.
 - Tap a cell to cycle blank → ✕ → animal; drag to paint ✕'s.
   Placing an animal automatically crosses out its "shadow".
+- Pick your favorite animal for each color, or leave it random.
 
 ## Running it
 

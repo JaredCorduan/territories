@@ -3,7 +3,7 @@
 // Territory (region) colors with their names (for hint text), and each color's pool of
 // animals (icons from game-icons.net, CC BY 3.0); one is shown on that region's animal.
 // Near-duplicate animals never share a board because the pools hold one of each.
-const POOLS = [
+export const POOLS = [
   ['#d8604f', 'red', 'fox-head sad-crab scorpion rooster ladybug ant piranha'],
   ['#f0a04b', 'orange', 'tiger-head clownfish squirrel sea-star monkey kangaroo feline'],
   ['#efd66f', 'yellow', 'lion bee duck camel labrador-head toucan gold-scarab'],
@@ -31,15 +31,18 @@ function rng(seed) {
 // The look of a board with `n` regions: per region, a { color, name, animal }.
 // The same seed (a puzzle's stable id) always gives the same colors and animals.
 // `pin`, a { region, animal }, forces that animal (in its own color) onto a region.
-export function themeFor(seed, n, pin) {
+// `favorites` (from loadFavorites) replaces the random animal of each color it names.
+export function themeFor(seed, n, pin, favorites = {}) {
   const rand = rng(seed);
   const pools = [...POOLS];
   for (let i = pools.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [pools[i], pools[j]] = [pools[j], pools[i]];
   }
-  const picked = pools.map(({ color, name, animals }) =>
-    ({ color, name, animal: animals[Math.floor(rand() * animals.length)] }));
+  const picked = pools.map(({ color, name, animals }) => {
+    const drawn = animals[Math.floor(rand() * animals.length)];
+    return { color, name, animal: animals.includes(favorites[name]) ? favorites[name] : drawn };
+  });
   if (pin) {
     const k = pools.findIndex((p) => p.animals.includes(pin.animal));
     picked[k].animal = pin.animal;
@@ -48,8 +51,23 @@ export function themeFor(seed, n, pin) {
   return Array.from({ length: n }, (_, r) => picked[r % picked.length]);
 }
 
+const FAVORITES_KEY = 'territories:favorites:v1';
+
+// The player's chosen animal per color name; colors left random are absent.
+export function loadFavorites() {
+  try {
+    const f = JSON.parse(localStorage.getItem(FAVORITES_KEY));
+    if (f && typeof f === 'object') return f;
+  } catch { /* unavailable or corrupt */ }
+  return {};
+}
+
+export function saveFavorites(favorites) {
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); } catch { /* ignore */ }
+}
+
 // A deep, saturated shade of a region color, for solved tiles.
-function deepen(hex) {
+export function deepen(hex) {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   const d = max - min;

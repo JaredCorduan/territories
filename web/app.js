@@ -1,5 +1,5 @@
 import init, { hint as wasmHint } from './pkg/territories_wasm.js';
-import { buildBoard as buildCells, showHighlights, hintText, themeFor } from './common.js';
+import { buildBoard as buildCells, showHighlights, hintText, themeFor, loadFavorites } from './common.js';
 
 const LEVELS = ['easy', 'medium', 'hard', 'brutal'];
 const STORE_KEY = 'territories:v1';
@@ -67,7 +67,7 @@ function openPuzzle() {
   const manualX = new Array(n * n).fill(false);
   for (const i of saved.animals || []) animal[i] = true;
   for (const i of saved.xs || []) manualX[i] = true;
-  game = { p, n, theme: themeFor(p.id, n), animal, manualX, history: [], secs: saved.secs || 0, solved: !!saved.solved };
+  game = { p, n, theme: themeFor(p.id, n, null, loadFavorites()), animal, manualX, history: [], secs: saved.secs || 0, solved: !!saved.solved };
   store.last = { ...sel };
   saveStore();
   clearHint();
@@ -332,6 +332,14 @@ function wire() {
   $('hint').addEventListener('click', askHint);
   $('hint-apply').addEventListener('click', applyHint);
   $('hint-close').addEventListener('click', () => { clearHint(); render(); });
+
+  // Coming back from the settings page: the favorite animals may have changed.
+  window.addEventListener('pageshow', (e) => {
+    if (!e.persisted || !game) return;
+    game.theme = themeFor(game.p.id, game.n, null, loadFavorites());
+    buildBoard();
+    render();
+  });
 
   setInterval(() => {
     if (!game || game.solved || document.hidden) return;

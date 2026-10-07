@@ -47,6 +47,15 @@ h1 { margin: 0; font-size: 1.6rem; letter-spacing: 0.02em; }
 .tagline { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
 .titlebar a { color: var(--accent); text-decoration: none; font-weight: 600; }
 .titlebar a:hover { text-decoration: underline; }
+.titlebar nav { display: flex; align-items: center; gap: 14px; }
+.gear {
+  width: 1.5rem;
+  height: 1.5rem;
+  background: var(--muted);
+  -webkit-mask: url("cog.svg") center / contain no-repeat;
+  mask: url("cog.svg") center / contain no-repeat;
+}
+.gear:hover { background: var(--accent); }
 
 .picker, .nav, .controls, .hint-actions {
   display: flex;
@@ -202,6 +211,21 @@ button:disabled { opacity: 0.4; cursor: default; }
 .board.mini .cell { cursor: default; }
 .example-text { color: var(--muted); font-size: 0.92rem; }
 .legend { color: var(--muted); font-size: 0.85rem; }
+
+/* Settings page */
+.pools { display: flex; flex-direction: column; gap: 8px; }
+.pool { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.pool .cell {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: var(--color);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25);
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+.pool .cell[aria-pressed="true"] { background: var(--deep); color: #fff; }
 
 .credit { color: var(--muted); font-size: 0.75rem; margin: 8px 0 0; }
 .credit a { color: inherit; }
