@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Territories Instructions</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="help.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="titlebar"><div><h1>Instructions</h1><p class="tagline">Territories, a Star Battle puzzle</p></div><a href="index.html">← Play</a></div>
+    </header>
+
+    <section class="intro">
+      <p>Each color is a territory. Place one animal in every row, every column, and every territory. Animals never touch, not even diagonally.</p>
+      <ul>
+        <li>Tap a cell to cycle through blank, ✕, animal, and back to blank:
+          <div id="cycle" class="cycle" role="img" aria-label="blank, then ✕, then animal, then blank"></div>
+        </li>
+        <li>Drag to paint ✕'s (or erase them if you start on one).</li>
+        <li>Placing an animal auto-crosses everything it rules out: its row, column, territory, and neighbors. Faded ✕'s are the automatic ones; they disappear when you remove the animal.</li>
+        <li>Every puzzle can be solved with its level's moves alone: <strong>no guessing, ever</strong>.</li>
+      </ul>
+    </section>
+
+    <h2 class="section">Moves</h2>
+    <div class="levels" role="tablist">
+      <button data-level="easy">Easy</button>
+      <button data-level="medium">Medium</button>
+      <button data-level="hard">Hard</button>
+      <button data-level="brutal">Brutal</button>
+    </div>
+
+    <p id="level-note" class="legend"></p>
+    <div id="moves"></div>
+    <p class="legend">In examples: striped cells are the units involved, a solid outline marks the key cells, and dashed outlines are the cells the move changes.</p>
+    <p class="credit">Animal icons by Lorc, Delapouite, Skoll, Caro Asercion and DarkZaitzev from <a href="https://game-icons.net">game-icons.net</a>, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>.</p>
+  </main>
+</body>
+</html>

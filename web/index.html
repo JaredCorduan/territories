@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Territories</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="titlebar"><div><h1>Territories</h1><p class="tagline">a Star Battle puzzle</p></div><a href="help.html">Instructions</a></div>
+      <div class="picker">
+        <div class="levels" role="tablist">
+          <button data-level="easy">Easy</button>
+          <button data-level="medium">Medium</button>
+          <button data-level="hard">Hard</button>
+          <button data-level="brutal">Brutal</button>
+        </div>
+        <select id="size" aria-label="Grid size"></select>
+      </div>
+      <div class="nav" id="nav">
+        <button id="prev" aria-label="Previous puzzle">‹</button>
+        <span id="title"></span>
+        <button id="next" aria-label="Next puzzle">›</button>
+        <span id="timer">0:00</span>
+      </div>
+    </header>
+
+    <p id="empty" class="empty" hidden></p>
+
+    <div id="board" class="board" aria-label="Puzzle board"></div>
+
+    <div class="controls" id="controls">
+      <button id="undo">Undo</button>
+      <button id="clear">Clear</button>
+      <button id="hint" class="primary">Hint</button>
+    </div>
+
+    <section id="hint-panel" hidden>
+      <p id="hint-text"></p>
+      <div class="hint-actions">
+        <button id="hint-apply" class="primary">Apply</button>
+        <button id="hint-close">Dismiss</button>
+      </div>
+    </section>
+
+    <section id="win" hidden>
+      <p id="win-text"></p>
+      <button id="win-next" class="primary">Next puzzle</button>
+    </section>
+
+    <p class="credit">Animal icons by Lorc, Delapouite, Skoll, Caro Asercion and DarkZaitzev from <a href="https://game-icons.net">game-icons.net</a>, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>.</p>
+  </main>
+</body>
+</html>
