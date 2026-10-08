@@ -59,13 +59,13 @@ const TWO_ANIMAL_MOVES = {
 const GAMES = {
   1: {
     rules: 'Each color is a territory. Place one animal in every row, every column, and every territory. Animals never touch, not even diagonally.',
-    auto: "Placing an animal auto-crosses everything it rules out: its row, column, territory, and neighbors. Faded ✕'s are the automatic ones; they disappear when you remove the animal.",
+    auto: "Placing an animal auto-crosses everything it rules out: its row, column, territory, and neighbors. The automatic ✕'s disappear when you remove the animal.",
     moves: MOVES,
     examples: 'examples.json',
   },
   2: {
     rules: 'Each color is a territory. Place two animals in every row, every column, and every territory. Animals never touch, not even diagonally.',
-    auto: "Placing an animal auto-crosses the cells touching it, and the second animal in a row, column, or territory auto-crosses the rest of it. Faded ✕'s are the automatic ones; they disappear when you remove the animal.",
+    auto: "Placing an animal auto-crosses the cells touching it, and the second animal in a row, column, or territory auto-crosses the rest of it. The automatic ✕'s disappear when you remove the animal.",
     moves: TWO_ANIMAL_MOVES,
     examples: 'examples-2.json',
   },

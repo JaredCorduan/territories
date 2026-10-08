@@ -120,7 +120,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   -webkit-mask: var(--cross) center / contain no-repeat;
   mask: var(--cross) center / contain no-repeat;
 }
-.cell.x.auto::before { opacity: 0.5; }
 .cell.animal::before {
   content: "";
   width: 74%;
