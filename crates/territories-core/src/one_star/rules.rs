@@ -1,32 +1,11 @@
-//! Human-style deduction rules. Every rule is a direct pattern a player can
+//! Human-style deduction rules for one animal per unit. Every rule is a direct pattern a player can
 //! spot on the board; none of them guess or search for contradictions.
 //! See MOVES.md for the player-facing descriptions.
 
 use serde::{Deserialize, Serialize};
 
 use crate::board::{Cell, MAX_SIZE, Mark, Puzzle, State, Unit, UnitKind};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Level {
-    Easy,
-    Medium,
-    Hard,
-    Brutal,
-}
-
-impl Level {
-    pub const ALL: [Level; 4] = [Level::Easy, Level::Medium, Level::Hard, Level::Brutal];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Level::Easy => "easy",
-            Level::Medium => "medium",
-            Level::Hard => "hard",
-            Level::Brutal => "brutal",
-        }
-    }
-}
+use crate::level::Level;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

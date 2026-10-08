@@ -1,12 +1,16 @@
 //! Builds a puzzle around a random animal layout, then repairs regions until
 //! the human rules alone solve it (which also proves it is unique).
 
+use std::collections::BTreeMap;
+
 use rand::Rng;
-use rand::seq::{IndexedRandom, SliceRandom};
 
-use territories_core::{Cell, Level, Puzzle, State, Status, Trace, bruteforce, solver};
+use territories_core::one_star::{Rule, Status, Trace, bruteforce, solver};
+use territories_core::{Cell, Level, Puzzle, State};
 
-use crate::layout::{Layout, grow_regions, neighbors, random_animals};
+use super::layout::{Layout, grow_regions, random_animals};
+use crate::grid::move_cell;
+use crate::output::Graded;
 
 const MAX_REPAIRS: usize = 60;
 
@@ -22,6 +26,33 @@ pub struct Generated {
 impl Generated {
     pub fn level(&self) -> Level {
         self.trace.level().unwrap_or(Level::Easy)
+    }
+}
+
+impl Graded for Generated {
+    type Solution = Vec<usize>;
+
+    fn puzzle(&self) -> &Puzzle {
+        &self.puzzle
+    }
+
+    fn level(&self) -> Level {
+        self.level()
+    }
+
+    fn solution(&self) -> &Vec<usize> {
+        &self.solution
+    }
+
+    fn moves(&self) -> BTreeMap<String, usize> {
+        let mut moves = BTreeMap::new();
+        for rule in Rule::ALL {
+            let used = self.trace.steps.iter().filter(|d| d.rule == rule).count();
+            if used > 0 {
+                moves.insert(rule.id().to_string(), used);
+            }
+        }
+        moves
     }
 }
 
@@ -137,57 +168,10 @@ fn break_alternate(
     move_cell(grid, locked, cells, rng)
 }
 
-/// Moves one of `cells` (tried in random order) into a neighboring region,
-/// keeping locked regions intact, every region connected, and no region
-/// below two cells.
-fn move_cell(grid: &mut [Vec<usize>], locked: &[bool], mut cells: Vec<Cell>, rng: &mut impl Rng) -> bool {
-    let n = grid.len();
-    cells.shuffle(rng);
-    for (r, c) in cells {
-        let from = grid[r][c];
-        let size = grid.iter().flatten().filter(|&&g| g == from).count();
-        if locked[from] || size <= 2 || !stays_connected(grid, from, (r, c)) {
-            continue;
-        }
-        let mut targets: Vec<usize> = neighbors(n, (r, c))
-            .map(|(nr, nc)| grid[nr][nc])
-            .filter(|&g| g != from && !locked[g])
-            .collect();
-        targets.dedup();
-        if let Some(&to) = targets.choose(rng) {
-            grid[r][c] = to;
-            return true;
-        }
-    }
-    false
-}
-
-/// Whether `region` stays 4-connected (and non-empty) without `removed`.
-fn stays_connected(grid: &[Vec<usize>], region: usize, removed: Cell) -> bool {
-    let n = grid.len();
-    let cells: Vec<Cell> = (0..n)
-        .flat_map(|r| (0..n).map(move |c| (r, c)))
-        .filter(|&(r, c)| grid[r][c] == region && (r, c) != removed)
-        .collect();
-    let Some(&start) = cells.first() else {
-        return false;
-    };
-    let mut seen = vec![start];
-    let mut stack = vec![start];
-    while let Some(cell) = stack.pop() {
-        for nb in neighbors(n, cell) {
-            if nb != removed && grid[nb.0][nb.1] == region && !seen.contains(&nb) {
-                seen.push(nb);
-                stack.push(nb);
-            }
-        }
-    }
-    seen.len() == cells.len()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grid::stays_connected;
     use territories_core::Mark;
     use rand::SeedableRng;
     use rand::rngs::StdRng;

@@ -10,8 +10,12 @@
 <body>
   <main>
     <header>
-      <div class="titlebar"><div><h1>Territories</h1><p class="tagline">a Star Battle puzzle</p></div><nav><a href="help.html">Instructions</a><a class="gear" href="settings.html" aria-label="Settings" title="Settings"></a></nav></div>
+      <div class="titlebar"><div><h1>Territories</h1><p class="tagline">a Star Battle puzzle</p></div><nav><a id="help" href="help.html">Instructions</a><a class="gear" href="settings.html" aria-label="Settings" title="Settings"></a></nav></div>
       <div class="picker">
+        <div class="games" id="games" role="tablist" aria-label="Animals per territory">
+          <button data-stars="1">1 animal</button>
+          <button data-stars="2">2 animals</button>
+        </div>
         <div class="levels" role="tablist">
           <button data-level="easy">Easy</button>
           <button data-level="medium">Medium</button>

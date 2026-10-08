@@ -39,11 +39,17 @@ python3 -m http.server -d web   # then open http://localhost:8000
 
 | Path | What it is |
 | --- | --- |
-| `crates/territories-core` | The moves, the solver that grades puzzles with them, and the hint engine |
-| `crates/territories-gen` | The puzzle generator and its tools |
+| `crates/territories-core` | The board, and for each game its moves, the solver that grades puzzles with them, and the hint engine |
+| `crates/territories-gen` | The puzzle generators and their tools |
 | `crates/territories-wasm` | Exposes the hint engine to the browser |
 | `web/` | The game: plain HTML, CSS, and JavaScript |
 | `data/puzzles.json` | The permanent puzzle collection |
+| `data/puzzles-2.json` | The two-animal game's collection |
+
+There are two games: one animal per row, column, and territory, and two.
+They share the board and nothing else. Each has its own moves, levels, and collection
+(`one_star` and `two_star` in both crates), so changing one never regrades the other.
+The site shows the two-animal game once `data/puzzles-2.json` exists.
 
 The generator places a random valid set of animals, grows territories around them,
 then repairs the territories until the solver can finish the puzzle using the moves alone,
@@ -57,8 +63,11 @@ which also proves the solution is unique.
   and refreshes `web/puzzles.json` every 10 seconds.
   Add `-- --minutes 10` to stop after a set time, or `-- --target 1000` to stop once every size and level
   has 1000 puzzles.
+- `cargo run --release --bin farm -- --stars 2` does the same for the two-animal game
+  (9×9 to 11×11, into `data/puzzles-2.json` and `web/puzzles-2.json`).
 - `cargo run --release --bin brutal-lab -- --check data/puzzles.json` regrades the collection and reports
   any puzzle whose stored level no longer matches.
+  Add `--stars 2` to regrade the two-animal collection, `data/puzzles-2.json`.
 - `dev/zoo/index.html` (open it directly) previews the candidate animals for each color.
 
 ## Credits

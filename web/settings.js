@@ -1,4 +1,4 @@
-import { POOLS, deepen, loadFavorites, saveFavorites } from './common.js';
+import { POOLS, deepen, isDark, loadFavorites, saveFavorites } from './common.js';
 
 const favorites = loadFavorites();
 
@@ -10,7 +10,7 @@ for (const { color, name, animals } of POOLS) {
   // null is the random choice.
   const tiles = [null, ...animals].map((animal) => {
     const el = document.createElement('button');
-    el.className = 'cell';
+    el.className = isDark(color) ? 'cell dark' : 'cell';
     if (animal) {
       el.classList.add('animal');
       el.style.setProperty('--icon', `url("animals/${animal}.svg")`);

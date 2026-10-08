@@ -13,14 +13,19 @@
       <div class="titlebar"><div><h1>Instructions</h1><p class="tagline">Territories, a Star Battle puzzle</p></div><a href="index.html">← Play</a></div>
     </header>
 
+    <div class="games" id="games" role="tablist" aria-label="Animals per territory" hidden>
+      <button data-stars="1">1 animal</button>
+      <button data-stars="2">2 animals</button>
+    </div>
+
     <section class="intro">
-      <p>Each color is a territory. Place one animal in every row, every column, and every territory. Animals never touch, not even diagonally.</p>
+      <p id="rules"></p>
       <ul>
         <li>Tap a cell to cycle through blank, ✕, animal, and back to blank:
           <div id="cycle" class="cycle" role="img" aria-label="blank, then ✕, then animal, then blank"></div>
         </li>
         <li>Drag to paint ✕'s (or erase them if you start on one).</li>
-        <li>Placing an animal auto-crosses everything it rules out: its row, column, territory, and neighbors. Faded ✕'s are the automatic ones; they disappear when you remove the animal.</li>
+        <li id="auto"></li>
         <li>Every puzzle can be solved with its level's moves alone: <strong>no guessing, ever</strong>.</li>
       </ul>
     </section>

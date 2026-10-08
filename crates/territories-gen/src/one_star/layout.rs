@@ -5,6 +5,8 @@ use rand::seq::SliceRandom;
 
 use territories_core::Cell;
 
+use crate::grid::neighbors;
+
 /// A random valid placement: one animal per row and column, none touching.
 /// `animals[row] = col`. Requires `n == 1` or `n >= 4`.
 pub fn random_animals(n: usize, rng: &mut impl Rng) -> Vec<usize> {
@@ -196,15 +198,6 @@ fn frontier(grid: &[Vec<Option<usize>>], region: usize) -> Vec<Cell> {
         }
     }
     out
-}
-
-/// Orthogonal neighbors of `cell` on an `n`×`n` grid.
-pub fn neighbors(n: usize, (r, c): Cell) -> impl Iterator<Item = Cell> {
-    [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)]
-        .into_iter()
-        .map(move |(dr, dc)| (r as i32 + dr, c as i32 + dc))
-        .filter(move |&(r, c)| r >= 0 && c >= 0 && (r as usize) < n && (c as usize) < n)
-        .map(|(r, c)| (r as usize, c as usize))
 }
 
 fn weighted_index(weights: &[f64], rng: &mut impl Rng) -> usize {

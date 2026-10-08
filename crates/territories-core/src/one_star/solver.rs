@@ -4,7 +4,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::board::{Mark, Puzzle, State, UnitKind};
-use crate::rules::{self, Analysis, Deduction, Level, Rule};
+use super::rules::{self, Analysis, Deduction, Rule};
+use crate::level::Level;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

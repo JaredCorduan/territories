@@ -75,6 +75,65 @@ A * * * * B      A lives in row 0 or the 2×2 block, and so does B.
 - Contradiction, trial and error, and "if this, then …" chains (including "both options lead to Z").
 - Uniqueness arguments.
 
+## Two animals
+
+The two-animal game (two animals in every row, column, and territory) has its own moves and its own levels. A unit is **full** once it has both animals, and two cells **touch** if they are neighbors, including diagonally. Sharing a unit is no longer a clash by itself.
+
+Most of these are one idea. Take some cells known to hold exactly k animals, and picture every way k animals fit there without touching. A cell every way uses is an animal. A cell where an animal would leave no way is crossed out.
+
+### Easy
+
+**Shadow** (`animal_shadow`): an animal X's the cells touching it. The UI does this automatically.
+
+**Full** (`full_unit`): a full unit's other cells are X'd. The UI does this automatically.
+
+**Last spots** (`last_spots`): a unit with as many open cells as animals it still needs gets them all.
+
+**Claimed line** (`claimed_line`): if all of a territory's open cells lie in one line, and it needs as many animals as the line does, X the rest of the line. Two territories needing one each can share a line needing two.
+
+**Claimed territory** (`claimed_region`): if all of a line's open cells lie in one territory, and the line needs as many animals as the territory does, X the rest of the territory.
+
+**Small squeeze** (`small_squeeze`): the idea above, on one unit with at most four open cells.
+
+```
+A A A            A needs two: they take the ends,
+                 and the middle is X'd.
+
+. * .            A needs one of its two cells (A A).
+. A A            The cells touching both are X'd.
+. * *
+```
+
+### Medium
+
+**Squeeze** (`squeeze`): the same on a unit with any number of open cells. Four open cells in a line X the cells on both sides of all four.
+
+**Crowded squeeze** (`crowded_squeeze`): a squeeze that also counts the room other units have left. A row that already holds an animal takes only one more.
+
+**Territory band, 2** (`region_band_2`): Claimed line with two lines: territories inside two lines that need all the animals those lines do. X everything else in those lines.
+
+**Line band, 2** (`line_band_2`): Claimed territory with two lines: two lines whose open cells lie in territories needing just as many animals. X everything else in those territories.
+
+### Hard
+
+**Territory band / Line band, 3+** (`region_band_3`, `line_band_3`): the same with three or more lines.
+
+**Leftover** (`leftover`): one line and the territories it touches leave a set of cells holding a known number of animals. If a row's open cells all lie in two territories, the row takes two of their four animals, so the rest of those territories holds exactly two. Then squeeze those cells as if they were a unit.
+
+### Brutal
+
+**Wide leftover** (`wide_leftover`): the leftover across a run of two or more neighboring lines.
+
+**Mixed band** (`mixed_band`): a band whose units are a mix of kinds. Units that share no open cell (say a row and a territory), with all their open cells inside units needing just as many animals (say two columns, or a row and a column): X everything else in those. Where two of the outer units cross, X that cell too.
+
+**Leftover cap** (`leftover_cap`): a leftover holds a known number of animals, so no other unit takes more than that from its cells. Squeeze a unit counting that limit.
+
+**Loose leftover** (`loose`): a run of one to three lines shares its animals among the territories crossing it, and each takes only what fits in its part of the run. A territory the others can't cover for must take at least what remains, so the rest of it holds at most what it has left: X it if that is none, or else squeeze another unit counting that limit.
+
+Most brutal puzzles need only the wide leftover. The grader uses the other three only when a puzzle can't be solved without them, and the farm publishes two such puzzles for every three of the others, in a shuffled order.
+
+Still excluded: trial and error (placing a mark and following the rules until something breaks) and uniqueness arguments.
+
 ## JSON output
 
 Each puzzle carries `level` (`easy` / `medium` / `hard` / `brutal`) and a `moves` tally:
@@ -84,3 +143,5 @@ Each puzzle carries `level` (`easy` / `medium` / `hard` / `brutal`) and a `moves
   "regions": [[0,0,1, ...], ...], "solution": [3,0,6, ...],
   "moves": { "last_spot": 5, "animal_shadow": 8, "squeeze": 2 } }
 ```
+
+Two-animal puzzles have ids starting with `2star-`, and `solution` lists both columns for each row (`[[1, 4], [6, 8], ...]`).

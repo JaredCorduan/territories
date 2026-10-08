@@ -2,24 +2,37 @@
 //! Each example is the state just before the grader first used that rule
 //! on some generated puzzle, so the pictured move is exactly what the
 //! engine (and the hint button) would say there.
+//!
+//! `--stars 2` does the same for the two-animal game's rules.
 
+use clap::Parser;
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use serde::Serialize;
 
-use territories_core::{Deduction, Level, Mark, Puzzle, Rule, State, UnitKind, solver};
-use territories_gen::output::Output;
-use territories_gen::generate::{generate, generate_brutal};
+use territories_core::one_star::{Deduction, Rule, solver};
+use territories_core::{Level, Mark, Puzzle, State, UnitKind, two_star};
+use territories_gen::game::{Game, TwoStar};
+use territories_gen::output::{Output, PuzzleOut};
+use territories_gen::one_star::generate::{generate, generate_brutal};
 
+#[derive(Parser)]
+struct Args {
+    /// Animals per row, column, and territory: which game's rules (1 or 2).
+    #[arg(long, default_value_t = 1)]
+    stars: usize,
+}
+
+/// `R`, `S`, and `D` are a game's rule, solution, and deduction.
 #[derive(Serialize)]
-struct Example {
-    rule: Rule,
+struct Example<R = Rule, S = Vec<usize>, D = Deduction> {
+    rule: R,
     size: usize,
     regions: Vec<Vec<usize>>,
-    solution: Vec<usize>,
+    solution: S,
     /// Row-major: `.` empty, `x` cross, `A` animal.
     marks: String,
-    deduction: Deduction,
+    deduction: D,
 }
 
 fn marks(state: &State) -> String {
@@ -43,6 +56,76 @@ fn score(size: usize, state: &State, d: &Deduction) -> usize {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    match Args::parse().stars {
+        1 => one_animal(),
+        2 => two_animals(),
+        n => Err(format!("--stars {n}: there are games with 1 and 2 animals").into()),
+    }
+}
+
+/// The two-animal game: every rule shows up in ordinary 9x9 puzzles.
+/// Lower scores are better: few marks already down, few units and cells
+/// to take in.
+type TwoExample = Example<two_star::Rule, two_star::Solution, two_star::Deduction>;
+
+fn two_animals() -> Result<(), Box<dyn std::error::Error>> {
+    use two_star::Rule;
+    const SIZE: usize = 9;
+    let mut rng = StdRng::seed_from_u64(2026);
+    let mut best: Vec<Option<(usize, TwoExample)>> = Rule::ALL.iter().map(|_| None).collect();
+    let offer = |best: &mut Vec<Option<(usize, TwoExample)>>, puzzle: &Puzzle, solution: &two_star::Solution, steps: &[two_star::Deduction]| {
+        let mut state = State::new(SIZE);
+        for d in steps {
+            let slot = Rule::ALL.iter().position(|&r| r == d.rule).unwrap();
+            let marked = puzzle.cells().filter(|&c| state.get(c) != Mark::Empty).count();
+            let mut s = marked + 20 * d.units.len() + d.focus.len() + d.animals.len() + d.crosses.len();
+            // A leftover reads best with territories in it, and the wide one
+            // with an animal already down, so the counts aren't all twos.
+            if matches!(d.rule, Rule::Leftover | Rule::WideLeftover) {
+                s += if d.units.iter().any(|u| u.kind() == UnitKind::Region) { 0 } else { 500 };
+                s += if d.rule == Rule::WideLeftover && d.line_need % 2 == 0 { 250 } else { 0 };
+            }
+            if best[slot].as_ref().is_none_or(|(b, _)| s < *b) {
+                best[slot] = Some((s, Example {
+                    rule: d.rule,
+                    size: SIZE,
+                    regions: puzzle.grid(),
+                    solution: solution.clone(),
+                    marks: marks(&state),
+                    deduction: d.clone(),
+                }));
+            }
+            two_star::solver::apply(&mut state, d);
+        }
+    };
+    for _ in 0..600 {
+        let target = Level::ALL[rng.random_range(0..Level::ALL.len())];
+        let Some(g) = territories_gen::two_star::generate::generate(SIZE, target, &mut rng) else { continue };
+        offer(&mut best, &g.puzzle, &g.solution, &g.trace.steps);
+    }
+    // The rare brutal rules turn up too seldom to count on above: take
+    // them from the collection's puzzles that need them.
+    if let Ok(text) = std::fs::read_to_string(TwoStar::STORE) {
+        let stored: Output<two_star::Solution> = serde_json::from_str(&text)?;
+        let rare = |p: &&PuzzleOut<two_star::Solution>| {
+            p.size == SIZE && two_star::solver::RARE.iter().any(|rule| p.moves.contains_key(rule.id()))
+        };
+        for p in stored.puzzles.iter().filter(rare).take(400) {
+            let puzzle = Puzzle::new(&p.regions)?;
+            let trace = two_star::solver::solve(&puzzle, &State::new(SIZE), Level::Brutal);
+            offer(&mut best, &puzzle, &p.solution, &trace.steps);
+        }
+    }
+    let missing: Vec<&str> = Rule::ALL.iter().zip(&best).filter(|(_, b)| b.is_none()).map(|(r, _)| r.id()).collect();
+    if !missing.is_empty() {
+        eprintln!("no example found for {missing:?}");
+    }
+    let examples: Vec<_> = best.into_iter().flatten().map(|(_, e)| e).collect();
+    println!("{}", serde_json::to_string(&examples)?);
+    Ok(())
+}
+
+fn one_animal() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = StdRng::seed_from_u64(2026);
     let mut best: Vec<Option<(usize, Example)>> = Rule::ALL.iter().map(|_| None).collect();
 
@@ -78,7 +161,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The brutal rules almost never arise in ordinary puzzles; take them
     // from the brutal puzzles in the collection.
-    let collection: Output = serde_json::from_str(&std::fs::read_to_string("data/puzzles.json")?)?;
+    let collection: Output<Vec<usize>> = serde_json::from_str(&std::fs::read_to_string("data/puzzles.json")?)?;
     for p in collection.puzzles.iter().filter(|p| p.level == Level::Brutal) {
         let puzzle = Puzzle::new(&p.regions)?;
         let trace = solver::solve(&puzzle, &State::new(p.size), Level::Brutal);

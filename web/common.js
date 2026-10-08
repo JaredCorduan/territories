@@ -3,6 +3,9 @@
 // Territory (region) colors with their names (for hint text), and each color's pool of
 // animals (icons from game-icons.net, CC BY 3.0); one is shown on that region's animal.
 // Near-duplicate animals never share a board because the pools hold one of each.
+// Boards with up to BASE_POOLS territories use only the first BASE_POOLS colors, so
+// colors added after them never change how those boards look.
+const BASE_POOLS = 10;
 export const POOLS = [
   ['#d8604f', 'red', 'fox-head sad-crab scorpion rooster ladybug ant piranha'],
   ['#f0a04b', 'orange', 'tiger-head clownfish squirrel sea-star monkey kangaroo feline'],
@@ -14,6 +17,7 @@ export const POOLS = [
   ['#f3a9cf', 'pink', 'pig flamingo axolotl rabbit shrimp snail mouse'],
   ['#e6e2d8', 'gray', 'wolf-head elephant rhinoceros-horn sheep swan panda koala'],
   ['#94704e', 'brown', 'bear-head horse-head gorilla eagle-head barn-owl stag-head hedgehog'],
+  ['#4f545c', 'black', 'mole badger tapir vulture bison hyena-head ostrich'],
 ].map(([color, name, animals]) => ({ color, name, animals: animals.split(' ') }));
 
 // A repeatable random source for `seed` (FNV-1a into mulberry32).
@@ -34,7 +38,7 @@ function rng(seed) {
 // `favorites` (from loadFavorites) replaces the random animal of each color it names.
 export function themeFor(seed, n, pin, favorites = {}) {
   const rand = rng(seed);
-  const pools = [...POOLS];
+  const pools = POOLS.slice(0, Math.max(n, BASE_POOLS));
   for (let i = pools.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [pools[i], pools[j]] = [pools[j], pools[i]];
@@ -66,6 +70,12 @@ export function saveFavorites(favorites) {
   try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); } catch { /* ignore */ }
 }
 
+// Whether a region color is dark enough to need light marks on it.
+export function isDark(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b < 110;
+}
+
 // A deep, saturated shade of a region color, for solved tiles.
 export function deepen(hex) {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -95,9 +105,9 @@ export function buildBoard(board, regions, theme) {
     for (let c = 0; c < n; c++) {
       const el = document.createElement('div');
       const reg = regions[r][c];
-      el.className = 'cell';
       el.dataset.i = r * n + c;
       const { color, animal } = theme[reg];
+      el.className = isDark(color) ? 'cell dark' : 'cell';
       el.style.background = color;
       el.style.setProperty('--icon', `url("animals/${animal}.svg")`);
       el.style.setProperty('--deep', deepen(color));
@@ -130,7 +140,9 @@ export function showHighlights(cells, regions, h) {
   if (h.kind === 'mistake') h.cells.forEach((c) => at(c).classList.add('hl-bad'));
   if (h.kind === 'reveal') at(h.cell).classList.add('hl-target');
   if (h.kind !== 'move') return;
-  for (const u of h.units) {
+  // `filled` (two-animal crowded squeezes) and `others` (loose leftovers) list more
+  // units that matter.
+  for (const u of [...h.units, ...(h.filled || []), ...(h.others || [])]) {
     cells.forEach((el, i) => {
       const r = Math.floor(i / n), c = i % n;
       if (('row' in u && u.row === r) || ('col' in u && u.col === c)
@@ -182,7 +194,9 @@ const RULE_NAMES = {
 };
 
 // Explains a hint in the context of the specific board (`theme` names its territories).
-export function hintText(h, theme) {
+// `stars` is the game: animals per row, column, and territory.
+export function hintText(h, theme, stars = 1) {
+  if (stars === 2 && h.kind === 'move') return twoAnimalText(h, theme);
   switch (h.kind) {
     case 'mistake':
       return `Something's off: ${h.cells.length === 1 ? 'the highlighted mark is' : 'the highlighted marks are'} wrong.`;
@@ -234,6 +248,146 @@ export function hintText(h, theme) {
       return `${name}: ${joinUnits(us.slice(0, half))} share no open cell, so they need ${half} different animals. Their open cells fit entirely within ${joinUnits(us.slice(half))}, so those are spoken for. Cross out everything else in ${joinUnits(us.slice(half))}.`;
     case 'window_packing':
       return `${name}: ${joinUnits(us)} share no open cell, so they need two animals, and their open cells fit inside the outlined 3×3 square. A 3×3 square holds at most two animals, so the rest of it is empty.`;
+    default:
+      return name;
+  }
+}
+
+// The two-animal game's moves. Its rule ids are its own, even where a name repeats.
+const TWO_ANIMAL_NAMES = {
+  animal_shadow: 'Shadow',
+  full_unit: 'Full',
+  last_spots: 'Last spots',
+  claimed_line: 'Claimed line',
+  claimed_region: 'Claimed territory',
+  small_squeeze: 'Small squeeze',
+  squeeze: 'Squeeze',
+  crowded_squeeze: 'Crowded squeeze',
+  region_band_2: 'Territory band',
+  line_band_2: 'Line band',
+  region_band_3: 'Territory band',
+  line_band_3: 'Line band',
+  leftover: 'Leftover',
+  wide_leftover: 'Wide leftover',
+  mixed_band: 'Mixed band',
+  leftover_cap: 'Leftover cap',
+  loose: 'Loose leftover',
+};
+
+function twoAnimalText(h, theme) {
+  const us = h.units;
+  const name = TWO_ANIMAL_NAMES[h.rule] || h.rule;
+  const join = (list) => joinUnitsOf(list, theme);
+  const animals = (k) => (k === 1 ? 'one animal' : `${k} animals`);
+  // Units come as one kind (lines or territories) and then the other.
+  const isLine = (u) => !('region' in u);
+  const split = us.findIndex((u) => isLine(u) !== isLine(us[0]));
+  let [first, rest] = split < 0 ? [us, []] : [us.slice(0, split), us.slice(split)];
+  const cap = (text) => text[0].toUpperCase() + text.slice(1);
+  const num = (k) => (k === 1 ? 'one' : k);
+  const need = (list) => (list.length === 1 ? 'still needs' : 'still need');
+  const it = h.crosses.length === 1;
+  // A leftover's cells: `first` and `rest` are lines then the territories they touch (the
+  // leftover is the rest of those territories), or territories then the lines they lie
+  // within (the rest of those lines).
+  const leftover = () => (!rest.length
+    ? `${join(first)} ${need(first)} ${animals(h.count)}${first.length > 1 ? ' between them' : ''}, all in the outlined cells.`
+    : isLine(first[0])
+      ? `every open cell of ${join(first)} lies in ${join(rest)}. ${cap(join(rest))} ${need(rest)} ${animals(h.line_need + h.count)} and ${join(first)} ${first.length === 1 ? 'takes' : 'take'} ${num(h.line_need)} of them, so the rest of ${join(rest)} (outlined) holds exactly ${num(h.count)}.`
+      : `${join(first)} ${first.length === 1 ? 'lies' : 'lie'} entirely inside ${join(rest)}. ${cap(join(rest))} ${need(rest)} ${animals(h.line_need)} and ${join(first)} ${first.length === 1 ? 'takes' : 'take'} ${num(h.line_need - h.count)} of them, so the rest of ${join(rest)} (outlined) holds exactly ${num(h.count)}.`);
+  // What squeezing `unit` gives when the outlined cells hold at most `h.count`.
+  const capped = (unit) => [
+    `Picture each arrangement of the animals ${join([unit])} still needs, with at most ${num(h.count)} in the outlined cells.`,
+    h.animals.length ? `Every arrangement uses ${h.animals.length === 1 ? 'one cell, so it gets an animal' : `${h.animals.length} cells, so they get animals`}.` : '',
+    h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out in every arrangement, so cross ${it ? 'it' : 'them'} out.` : '',
+  ];
+  // What a squeeze concludes, for the cells it marks.
+  const outcome = () => [
+    h.animals.length ? `Every arrangement uses ${h.animals.length === 1 ? 'one cell, so it gets an animal' : `${h.animals.length} cells, so they get animals`}.` : '',
+    h.crosses.length ? `The dashed ✕ ${h.crosses.length === 1 ? 'cell is' : 'cells are'} ruled out in every arrangement, so cross ${h.crosses.length === 1 ? 'it' : 'them'} out.` : '',
+  ].filter(Boolean).join(' ');
+  switch (h.rule) {
+    case 'animal_shadow':
+      return `${name}: animals never touch, so cross out the cells around ${h.focus.length === 1 ? 'this animal' : 'these animals'}.`;
+    case 'full_unit':
+      return `${name}: ${join(us)} already ${us.length === 1 ? 'has both its' : 'have both their'} animals. Cross out the rest.`;
+    case 'last_spots':
+      return `${name}: ${join(us)} still needs ${animals(h.count)} and has exactly that many open cells.`;
+    case 'claimed_line':
+    case 'claimed_region':
+    case 'region_band_2':
+    case 'line_band_2':
+    case 'region_band_3':
+    case 'line_band_3':
+      return `${name}: every open cell of ${join(first)} lies in ${join(rest)}. ${first.length === 1 ? 'It still needs' : 'They still need'} ${animals(h.count)}, which is all ${join(rest)} ${rest.length === 1 ? 'has' : 'have'} left. Cross out everything else in ${join(rest)}.`;
+    case 'small_squeeze':
+    case 'squeeze':
+      return `${name}: ${join(us)} still needs ${animals(h.count)} in its outlined cells, with none touching. ${outcome()}`;
+    case 'crowded_squeeze': {
+      // units: the squeezed unit, then the units too short of room for some arrangements.
+      const short = us.slice(1);
+      const every = short.length ? 'every arrangement left' : 'every arrangement';
+      const it = h.crosses.length === 1;
+      // The lines those animals fill, and how many of them it takes.
+      const lines = h.filled.map((u) => unitNameOf(u, theme)).join(' or ');
+      const path = h.filling === 2 ? `two animals in ${lines}`
+        : h.filling === 1 ? `an animal that fills ${lines}` : `animals that fill ${lines}`;
+      return [
+        `${name}: ${join(us.slice(0, 1))} still needs ${animals(h.count)} in its outlined cells, with none touching.`,
+        short.length ? `${join(short)} ${short.length === 1 ? 'has' : 'each have'} room for only one more, which rules some arrangements out.` : '',
+        h.animals.length ? `${every[0].toUpperCase()}${every.slice(1)} uses ${h.animals.length === 1 ? 'one cell, so it gets an animal' : `${h.animals.length} cells, so they get animals`}.` : '',
+        h.filled.length
+          ? `In ${every}, the dashed ✕ ${it ? 'cell' : 'cells'} either ${it ? 'touches' : 'touch'} one of those animals, or ${it ? 'is' : 'are'} in the path of ${path}. Either way, cross ${it ? 'it' : 'them'} out.`
+          : h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out in ${every}, so cross ${it ? 'it' : 'them'} out.` : '',
+      ].filter(Boolean).join(' ');
+    }
+    case 'leftover':
+    case 'wide_leftover': {
+      return [
+        `${name}: ${leftover()}`,
+        h.count === 1
+          ? 'Picture each place that animal can go in the outlined cells, with no row, column, or territory taking more than it has room for.'
+          : `Picture each arrangement of those ${h.count} animals in the outlined cells, with none touching, and no row, column, or territory taking more than it has room for.`,
+        h.animals.length ? `Every arrangement uses ${h.animals.length === 1 ? 'one cell, so it gets an animal' : `${h.animals.length} cells, so they get animals`}.` : '',
+        h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out ${h.count === 1 ? 'wherever it goes' : 'in every arrangement'}, so cross ${it ? 'it' : 'them'} out.` : '',
+      ].filter(Boolean).join(' ');
+    }
+    case 'mixed_band': {
+      // units: the `inner` units that fit, then the units they fit within.
+      const [fits, within] = [us.slice(0, h.inner), us.slice(h.inner)];
+      const crossing = h.crosses.some(([r, c]) => h.focus.some(([fr, fc]) => fr === r && fc === c));
+      return [
+        `${name}: every open cell of ${join(fits)} lies in ${join(within)}${fits.length > 1 ? `, and ${join(fits)} share no open cell` : ''}.`,
+        `${fits.length === 1 ? 'It still needs' : 'They still need'} ${animals(h.count)}${fits.length > 1 ? ' between them' : ''}, which is all ${join(within)} ${within.length === 1 ? 'has' : 'have'} left.`,
+        `Cross out everything else in ${join(within)}.`,
+        crossing ? `An animal where ${within.length === 2 ? '' : 'two of '}${join(within)} cross would use up room in both, so cross that out too.` : '',
+      ].filter(Boolean).join(' ');
+    }
+    case 'leftover_cap': {
+      // units: a leftover's units (`inner` of them), then the unit squeezed.
+      const mine = us.slice(0, h.inner);
+      const cut = mine.findIndex((u) => isLine(u) !== isLine(mine[0]));
+      [first, rest] = cut < 0 ? [mine, []] : [mine.slice(0, cut), mine.slice(cut)];
+      return [`${name}: ${leftover()}`, ...capped(us[h.inner])].filter(Boolean).join(' ');
+    }
+    case 'loose': {
+      // units: `inner` lines, the territory that must take some of their animals, and the
+      // unit squeezed. filling: the least that territory takes. count: the most its
+      // outlined rest then holds. others: the other territories crossing the lines.
+      const lines = us.slice(0, h.inner);
+      const taker = [us[h.inner]];
+      const others = h.line_need - h.filling;
+      const named = h.others || [];
+      const several = named.length > 1;
+      return [
+        `${name}: ${join(lines)} ${need(lines)} ${animals(h.line_need)}.`,
+        others ? `${named.length ? cap(join(named)) : 'The other territories there'} can fit at most ${animals(others)} in ${join(lines)}${several ? ' between them' : ''}, so ${join(taker)} must have at least ${num(h.filling)} there.`
+          : `Only ${join(taker)} has open cells there, so it takes ${h.filling === 1 ? 'it' : 'them all'}.`,
+        h.count ? `${cap(join(taker))} still needs ${animals(h.filling + h.count)}, so the rest of it (outlined) holds at most ${num(h.count)}.`
+          : `That is every animal ${join(taker)} still needs, so cross out the rest of it.`,
+        ...(h.count ? capped(us[h.inner + 1]) : []),
+      ].filter(Boolean).join(' ');
+    }
     default:
       return name;
   }

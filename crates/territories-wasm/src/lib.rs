@@ -3,21 +3,28 @@
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
-use territories_core::{Level, Mark, Puzzle, State, hint};
+use territories_core::{Level, Mark, Puzzle, State, one_star, two_star};
 
 #[derive(Deserialize)]
 struct HintRequest {
+    /// Animals per row, column, and territory: 1 (if omitted) or 2.
+    #[serde(default = "one")]
+    stars: usize,
     /// `regions[row][col]` = region index.
     regions: Vec<Vec<usize>>,
     /// Row-major, one char per cell: `.` empty, `x` cross, `A` animal.
     marks: String,
-    /// `solution[row]` = animal's column.
-    solution: Vec<usize>,
+    /// `solution[row]` = the animal's column, or with two animals, both columns.
+    solution: serde_json::Value,
     /// Hardest rule level to suggest (the puzzle's own level).
     level: Level,
 }
 
-/// Takes a `HintRequest` as JSON and returns a `territories_core::Hint` as JSON,
+fn one() -> usize {
+    1
+}
+
+/// Takes a `HintRequest` as JSON and returns that game's `Hint` as JSON,
 /// or `{"kind":"error","message":...}` for bad input.
 #[wasm_bindgen]
 pub fn hint(request: &str) -> String {
@@ -31,9 +38,6 @@ fn run(request: &str) -> Result<String, String> {
     let req: HintRequest = serde_json::from_str(request).map_err(|e| e.to_string())?;
     let puzzle = Puzzle::new(&req.regions).map_err(|e| e.to_string())?;
     let n = puzzle.size();
-    if req.solution.len() != n || req.solution.iter().any(|&c| c >= n) {
-        return Err("solution does not match the grid".into());
-    }
     let marks: Vec<char> = req.marks.chars().collect();
     if marks.len() != n * n {
         return Err(format!("expected {} marks, got {}", n * n, marks.len()));
@@ -48,8 +52,25 @@ fn run(request: &str) -> Result<String, String> {
         };
         state.set((i / n, i % n), mark);
     }
-    let h = hint::hint(&puzzle, &state, &req.solution, req.level);
-    serde_json::to_string(&h).map_err(|e| e.to_string())
+    let mismatch = || "solution does not match the grid".to_string();
+    let hint = match req.stars {
+        1 => {
+            let solution: Vec<usize> = serde_json::from_value(req.solution).map_err(|e| e.to_string())?;
+            if solution.len() != n || solution.iter().any(|&c| c >= n) {
+                return Err(mismatch());
+            }
+            serde_json::to_string(&one_star::hint::hint(&puzzle, &state, &solution, req.level))
+        }
+        2 => {
+            let solution: two_star::Solution = serde_json::from_value(req.solution).map_err(|e| e.to_string())?;
+            if n > two_star::MAX_SIZE || solution.len() != n || solution.iter().flatten().any(|&c| c >= n) {
+                return Err(mismatch());
+            }
+            serde_json::to_string(&two_star::hint::hint(&puzzle, &state, &solution, req.level))
+        }
+        other => return Err(format!("no game with {other} animals")),
+    };
+    hint.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -65,6 +86,18 @@ mod tests {
         );
         let out = hint(&req);
         assert!(out.starts_with(r#"{"kind":"move","rule":"#), "{out}");
+    }
+
+    #[test]
+    fn two_animal_hints_use_their_own_rules() {
+        let rows: Vec<String> = (0..9).map(|r| format!("[{}]", vec![r.to_string(); 9].join(","))).collect();
+        let req = format!(
+            r#"{{"stars":2,"regions":[{}],"marks":"{}","solution":[[0,2],[4,6],[1,8],[3,5],[0,7],[2,4],[6,8],[1,3],[5,7]],"level":"easy"}}"#,
+            rows.join(","),
+            "A".to_string() + &".".repeat(80),
+        );
+        let out = hint(&req);
+        assert!(out.starts_with(r#"{"kind":"move","rule":"animal_shadow""#), "{out}");
     }
 
     #[test]

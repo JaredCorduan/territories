@@ -1,5 +1,5 @@
 import init, { hint as wasmHint } from './pkg/territories_wasm.js';
-import { buildBoard as buildCells, showHighlights, hintText, themeFor, loadFavorites } from './common.js';
+import { POOLS, buildBoard as buildCells, showHighlights, hintText, themeFor, loadFavorites } from './common.js';
 
 const LEVELS = ['easy', 'medium', 'hard', 'brutal'];
 const STORE_KEY = 'territories:v1';
@@ -11,9 +11,9 @@ const $ = (id) => document.getElementById(id);
 function loadStore() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (s && typeof s === 'object') return { progress: s.progress || {}, last: s.last || null };
+    if (s && typeof s === 'object') return { progress: s.progress || {}, last: s.last || null, places: s.places || {} };
   } catch { /* unavailable or corrupt */ }
-  return { progress: {}, last: null };
+  return { progress: {}, last: null, places: {} };
 }
 
 function saveStore() {
@@ -22,9 +22,13 @@ function saveStore() {
 
 // ---------- state ----------
 
-let puzzles = [];        // all puzzles from puzzles.json
-let store = loadStore();
-let sel = { level: 'easy', size: 8, index: 0 };
+// The two games, by animals per row, column, and territory. Each has its own puzzle file.
+const GAMES = { 1: 'puzzles.json', 2: 'puzzles-2.json' };
+
+let games = { 1: [], 2: [] }; // each game's puzzles
+let puzzles = [];        // the current game's puzzles
+let store = loadStore(); // store.places: where the player was in each game
+let sel = { stars: 1, level: 'easy', size: 8, index: 0 };
 let game = null;         // { p, n, theme, animal[], manualX[], history[], secs, solved }
 let activeHint = null;   // last hint response, while shown
 
@@ -42,11 +46,16 @@ function showEmpty(empty) {
 }
 
 function openPuzzle() {
+  puzzles = games[sel.stars];
+  document.querySelectorAll('.games button').forEach((b) =>
+    b.setAttribute('aria-selected', String(Number(b.dataset.stars) === sel.stars)));
+  $('help').href = `help.html#${sel.stars === 2 ? '2-' : ''}${sel.level}`;
   // Prefer a size that has puzzles at this level.
   if (count(sel.level, sel.size) === 0) {
     const size = sizes().find((s) => count(sel.level, s) > 0);
     if (size) sel = { ...sel, size, index: 0 };
   }
+  if (sizes().length && !sizes().includes(sel.size)) sel.size = sizes()[0];
   refreshSizes();
   document.querySelectorAll('.levels button').forEach((b) =>
     b.setAttribute('aria-selected', String(b.dataset.level === sel.level)));
@@ -69,6 +78,7 @@ function openPuzzle() {
   for (const i of saved.xs || []) manualX[i] = true;
   game = { p, n, theme: themeFor(p.id, n, null, loadFavorites()), animal, manualX, history: [], secs: saved.secs || 0, solved: !!saved.solved };
   store.last = { ...sel };
+  store.places[sel.stars] = { level: sel.level, size: sel.size, index: sel.index };
   saveStore();
   clearHint();
   buildBoard();
@@ -86,22 +96,39 @@ function persist() {
 
 const regionOf = (i) => game.p.regions[Math.floor(i / game.n)][i % game.n];
 
-// Auto-X: the animal's whole shadow (every cell it attacks).
-function autoX() {
-  const { n, animal } = game;
-  const out = new Array(n * n).fill(false);
-  animal.forEach((q, i) => {
-    if (!q) return;
-    for (let j = 0; j < n * n; j++) if (attacks(i, j)) out[j] = true;
-  });
-  return out;
+// The row, column, and territory of cell i, as keys.
+const unitsOf = (i) => [`r${Math.floor(i / game.n)}`, `c${i % game.n}`, `t${regionOf(i)}`];
+
+function touches(a, b) {
+  const n = game.n;
+  return a !== b && Math.abs(Math.floor(a / n) - Math.floor(b / n)) <= 1 && Math.abs(a % n - b % n) <= 1;
 }
 
-function attacks(a, b) {
-  const n = game.n;
-  const ar = Math.floor(a / n), ac = a % n, br = Math.floor(b / n), bc = b % n;
-  return a !== b && (ar === br || ac === bc || regionOf(a) === regionOf(b)
-    || (Math.abs(ar - br) <= 1 && Math.abs(ac - bc) <= 1));
+// How many animals each unit holds, by key.
+function tally() {
+  const held = {};
+  game.animal.forEach((q, i) => {
+    if (q) for (const u of unitsOf(i)) held[u] = (held[u] || 0) + 1;
+  });
+  return held;
+}
+
+// Auto-X: the cells touching an animal, and the rest of every unit that has all its animals.
+function autoX() {
+  const { n, animal, p } = game;
+  const held = tally();
+  const animals = animal.flatMap((q, i) => (q ? [i] : []));
+  return Array.from({ length: n * n }, (_, j) =>
+    unitsOf(j).some((u) => held[u] >= p.stars) || animals.some((i) => touches(i, j)));
+}
+
+// Animals that break a rule: touching another, or in a unit with too many.
+function clashes() {
+  const { animal, p } = game;
+  const held = tally();
+  const animals = animal.flatMap((q, i) => (q ? [i] : []));
+  return new Set(animals.filter((i) =>
+    unitsOf(i).some((u) => held[u] > p.stars) || animals.some((j) => touches(i, j))));
 }
 
 // 'animal' | 'x' | 'empty' as the player sees it.
@@ -112,7 +139,9 @@ function shown(i, auto) {
 
 function isSolved() {
   const { n, animal, p } = game;
-  return animal.filter(Boolean).length === n && p.solution.every((c, r) => animal[r * n + c]);
+  // A row's solution is one column, or with two animals, both columns.
+  return animal.filter(Boolean).length === n * p.stars
+    && p.solution.every((cols, r) => [cols].flat().every((c) => animal[r * n + c]));
 }
 
 // ---------- editing ----------
@@ -160,13 +189,13 @@ function buildBoard() {
 
 function render() {
   const auto = autoX();
-  const animals = game.animal.flatMap((q, i) => (q ? [i] : []));
+  const clash = clashes();
   cells.forEach((el, i) => {
     const s = shown(i, auto);
     el.classList.toggle('animal', s === 'animal');
     el.classList.toggle('x', s === 'x');
     el.classList.toggle('auto', s === 'x' && !game.manualX[i]);
-    el.classList.toggle('clash', s === 'animal' && animals.some((j) => attacks(i, j)));
+    el.classList.toggle('clash', clash.has(i));
   });
   renderHint();
   $('board').classList.toggle('won', game.solved);
@@ -237,7 +266,7 @@ function askHint() {
   const marks = Array.from({ length: n * n }, (_, i) => ({ animal: 'A', x: 'x', empty: '.' })[shown(i, auto)]).join('');
   let h;
   try {
-    h = JSON.parse(wasmHint(JSON.stringify({ regions: p.regions, marks, solution: p.solution, level: p.level })));
+    h = JSON.parse(wasmHint(JSON.stringify({ stars: p.stars, regions: p.regions, marks, solution: p.solution, level: p.level })));
   } catch (err) {
     h = { kind: 'error', message: String(err) };
   }
@@ -255,7 +284,7 @@ function renderHint() {
   showHighlights(cells, game.p.regions, h);
   $('hint-panel').hidden = !h;
   if (!h) return;
-  $('hint-text').textContent = hintText(h, game.theme);
+  $('hint-text').textContent = hintText(h, game.theme, game.p.stars);
   $('hint-apply').hidden = h.kind === 'error';
   $('hint-apply').textContent = h.kind === 'mistake' ? 'Fix' : 'Apply';
 }
@@ -304,6 +333,13 @@ function wire() {
     sel = { ...sel, level: b.dataset.level, index: 0 };
     openPuzzle();
   }));
+  // Switching games returns to where the player was in the other one.
+  document.querySelectorAll('.games button').forEach((b) => b.addEventListener('click', () => {
+    const stars = Number(b.dataset.stars);
+    if (stars === sel.stars) return;
+    sel = { ...sel, index: 0, ...store.places[stars], stars };
+    openPuzzle();
+  }));
   $('size').addEventListener('change', (e) => { sel = { ...sel, size: Number(e.target.value), index: 0 }; openPuzzle(); });
   $('prev').addEventListener('click', () => { sel.index--; openPuzzle(); });
   $('next').addEventListener('click', () => { sel.index++; openPuzzle(); });
@@ -350,10 +386,17 @@ function wire() {
 }
 
 async function main() {
-  const [, res] = await Promise.all([init(), fetch('puzzles.json')]);
-  puzzles = (await res.json()).puzzles;
+  // A game with no puzzle file yet is simply empty. Boards need a color per
+  // territory, so sizes beyond the palette wait until it grows.
+  const load = async (stars) => {
+    const res = await fetch(GAMES[stars]).catch(() => null);
+    const all = res?.ok ? (await res.json()).puzzles : [];
+    return all.filter((p) => p.size <= POOLS.length).map((p) => ({ ...p, stars }));
+  };
+  [, games[1], games[2]] = await Promise.all([init(), load(1), load(2)]);
   if (store.last && LEVELS.includes(store.last.level)) sel = { ...sel, ...store.last };
-  if (!sizes().includes(sel.size)) sel.size = sizes()[0];
+  if (!games[sel.stars]?.length) sel.stars = 1;
+  $('games').hidden = games[2].length === 0;
   wire();
   openPuzzle();
 }

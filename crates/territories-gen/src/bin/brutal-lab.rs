@@ -5,7 +5,8 @@
 //! the puzzle collection.
 //!
 //! `--check <collection>` instead regrades every stored puzzle and reports
-//! any whose level or move tally would differ from what is stored.
+//! any whose level or move tally would differ from what is stored. With
+//! `--stars 2` the collection is the two-animal game's.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -17,8 +18,10 @@ use clap::Parser;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use territories_core::{Level, Mark, Puzzle, Rule, State, Status, solver};
-use territories_gen::generate::generate_beyond_hard;
+use territories_core::one_star::{Rule, Status, solver};
+use territories_core::two_star;
+use territories_core::{Level, Mark, Puzzle, State};
+use territories_gen::one_star::generate::generate_beyond_hard;
 use territories_gen::output::Output;
 
 #[derive(Parser)]
@@ -38,6 +41,9 @@ struct Args {
     /// Regrade this collection and report differences, then exit.
     #[arg(long)]
     check: Option<PathBuf>,
+    /// Which game's collection `--check` regrades: 1 or 2 animals.
+    #[arg(long, default_value_t = 1)]
+    stars: usize,
 }
 
 /// How one beyond-hard puzzle fared.
@@ -88,7 +94,7 @@ struct Tally {
 /// Regrades every puzzle in the collection at `path`; returns how many
 /// no longer match their stored level, solution, or move tally.
 fn check(path: &PathBuf) -> Result<usize, Box<dyn std::error::Error>> {
-    let collection: Output = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    let collection: Output<Vec<usize>> = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     let mut changed = 0;
     for p in &collection.puzzles {
         let puzzle = Puzzle::new(&p.regions)?;
@@ -113,10 +119,44 @@ fn check(path: &PathBuf) -> Result<usize, Box<dyn std::error::Error>> {
     Ok(changed)
 }
 
+/// `check` for the two-animal game.
+fn check_two(path: &PathBuf) -> Result<usize, Box<dyn std::error::Error>> {
+    use two_star::solver;
+    let collection: Output<two_star::Solution> = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    let mut changed = 0;
+    for p in &collection.puzzles {
+        let puzzle = Puzzle::new(&p.regions)?;
+        let trace = solver::grade(&puzzle, Level::Brutal);
+        let mut moves: BTreeMap<String, usize> = BTreeMap::new();
+        for d in &trace.steps {
+            *moves.entry(d.rule.id().to_string()).or_default() += 1;
+        }
+        let state = &trace.state;
+        let animals = |r: usize| (0..p.size).filter(move |&c| state.get((r, c)) == Mark::Animal);
+        let mut stored = p.solution.clone();
+        stored.iter_mut().for_each(|row| row.sort());
+        let same = trace.solved
+            && trace.level().unwrap_or(Level::Easy) == p.level
+            && (0..p.size).all(|r| animals(r).eq(stored[r]))
+            && moves == p.moves;
+        if !same {
+            changed += 1;
+            println!("{} now grades differently", p.id);
+        }
+    }
+    println!("{} puzzles checked, {changed} grade differently", collection.puzzles.len());
+    Ok(changed)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     if let Some(path) = &args.check {
-        return match check(path)? {
+        let changed = match args.stars {
+            1 => check(path)?,
+            2 => check_two(path)?,
+            n => return Err(format!("--stars {n}: there are games with 1 and 2 animals").into()),
+        };
+        return match changed {
             0 => Ok(()),
             n => Err(format!("{n} stored puzzles grade differently").into()),
         };
