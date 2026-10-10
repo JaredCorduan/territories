@@ -128,17 +128,68 @@ export function buildBoard(board, regions, theme) {
   return cells;
 }
 
+// Two-animal rules whose outlined cells hold exactly `count` animals, none touching.
+const GROUPED = new Set(['small_squeeze', 'squeeze', 'crowded_squeeze', 'leftover', 'wide_leftover']);
+
+// Splits such a rule's outlined cells into `count` groups of touching cells (each inside
+// one 2×2 block), if they split that way: every group then holds exactly one animal.
+// Prefers the split with the most animals in groups of their own.
+export function touchingGroups(h) {
+  if (!GROUPED.has(h.rule) || !(h.count >= 2)) return null;
+  const covers = (cells, k) => {
+    if (!cells.length) return [[]];
+    if (k === 0) return [];
+    // The first cell in reading order is in its block's top row.
+    const [r, c] = cells[0];
+    return [c, c - 1].flatMap((left) => {
+      const inside = ([rr, cc]) => rr <= r + 1 && cc >= left && cc <= left + 1;
+      return covers(cells.filter((x) => !inside(x)), k - 1).map((rest) => [cells.filter(inside), ...rest]);
+    });
+  };
+  const alone = (groups) => groups.filter((g) => g.length === 1 && h.animals.some((a) => String(a) === String(g[0]))).length;
+  const sorted = [...h.focus].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return covers(sorted, h.count).reduce((best, g) => (!best || alone(g) > alone(best) ? g : best), null);
+}
+
+// A capped squeeze's other cells: the squeezed unit's open cells outside the outlined
+// ones. The outlined cells hold one of its two animals at most, so these hold the rest.
+function cappedRest(h) {
+  if (!h.squeezed?.length || h.count !== 1) return [];
+  return h.squeezed.filter(([r, c]) => !h.focus.some(([fr, fc]) => fr === r && fc === c));
+}
+
+// Draws one box around `group` (cells of `board`): a cell's edge is drawn unless the
+// group goes on past it. `kind` is an extra class for the box.
+function boxGroup(board, group, kind = '') {
+  for (const [r, c] of group) {
+    const open = (dr, dc) => !group.some(([rr, cc]) => rr === r + dr && cc === c + dc);
+    const add = (edges) => {
+      const box = document.createElement('div');
+      box.className = `hl-group ${kind} ${edges}`;
+      box.style.gridArea = `${r + 1} / ${c + 1} / span 1 / span 1`;
+      board.append(box);
+    };
+    add([open(-1, 0) && 'top', open(0, 1) && 'right', open(1, 0) && 'bottom', open(0, -1) && 'left'].filter(Boolean).join(' '));
+    // A group that turns a corner inside this cell: join the two edges there.
+    for (const [dr, dc] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+      if (!open(dr, 0) && !open(0, dc) && open(dr, dc)) add(`corner ${dr < 0 ? 'top' : 'bottom'} ${dc < 0 ? 'left' : 'right'}`);
+    }
+  }
+}
+
 // Shows a hint (or example deduction) on the cells: striped units, solid
-// focus outline, dashed outline on cells that change, red on mistakes.
+// focus outline (one box per group of touching cells, where a rule counts those),
+// dotted box on a capped squeeze's other cells,
+// dashed outline and a faint mark on cells that change, red on mistakes.
 export function showHighlights(cells, regions, h) {
-  for (const el of cells) el.classList.remove('hl-unit', 'hl-focus', 'hl-target', 'hl-bad');
+  for (const el of cells) el.classList.remove('hl-unit', 'hl-focus', 'hl-grouped', 'hl-target', 'hl-animal', 'hl-cross', 'hl-bad');
   const board = cells[0]?.parentElement;
-  board?.querySelectorAll('.hl-block').forEach((el) => el.remove());
+  board?.querySelectorAll('.hl-block, .hl-group').forEach((el) => el.remove());
   if (!h) return;
   const n = regions.length;
   const at = ([r, c]) => cells[r * n + c];
   if (h.kind === 'mistake') h.cells.forEach((c) => at(c).classList.add('hl-bad'));
-  if (h.kind === 'reveal') at(h.cell).classList.add('hl-target');
+  if (h.kind === 'reveal') at(h.cell).classList.add('hl-target', 'hl-animal');
   if (h.kind !== 'move') return;
   // `filled` (two-animal crowded squeezes) and `others` (loose leftovers) list more
   // units that matter.
@@ -150,7 +201,13 @@ export function showHighlights(cells, regions, h) {
     });
   }
   const side = SQUARE_SIDE[h.rule];
-  if (side) {
+  const groups = touchingGroups(h);
+  if (groups) {
+    for (const group of groups) {
+      group.forEach((c) => at(c).classList.add('hl-grouped'));
+      boxGroup(board, group);
+    }
+  } else if (side) {
     // focus lists each square's cells, top-left first: outline whole squares.
     for (let i = 0; i < h.focus.length; i += side * side) {
       const [r, c] = h.focus[i];
@@ -162,7 +219,12 @@ export function showHighlights(cells, regions, h) {
   } else {
     h.focus.forEach((c) => at(c).classList.add('hl-focus'));
   }
-  [...h.animals, ...h.crosses].forEach((c) => at(c).classList.add('hl-target'));
+  // A capped squeeze: a dotted box around the squeezed unit's cells outside the outline.
+  const rest = cappedRest(h);
+  rest.forEach((c) => at(c).classList.add('hl-grouped'));
+  boxGroup(board, rest, 'dotted');
+  h.animals.forEach((c) => at(c).classList.add('hl-target', 'hl-animal'));
+  h.crosses.forEach((c) => at(c).classList.add('hl-target', 'hl-cross'));
 }
 
 // Rules whose focus is a list of squares (2×2 blocks or a 3×3 window), by side.
@@ -295,15 +357,81 @@ function twoAnimalText(h, theme) {
     : isLine(first[0])
       ? `every open cell of ${join(first)} lies in ${join(rest)}. ${cap(join(rest))} ${need(rest)} ${animals(h.line_need + h.count)} and ${join(first)} ${first.length === 1 ? 'takes' : 'take'} ${num(h.line_need)} of them, so the rest of ${join(rest)} (outlined) holds exactly ${num(h.count)}.`
       : `${join(first)} ${first.length === 1 ? 'lies' : 'lie'} entirely inside ${join(rest)}. ${cap(join(rest))} ${need(rest)} ${animals(h.line_need)} and ${join(first)} ${first.length === 1 ? 'takes' : 'take'} ${num(h.line_need - h.count)} of them, so the rest of ${join(rest)} (outlined) holds exactly ${num(h.count)}.`);
-  // What squeezing `unit` gives when the outlined cells hold at most `h.count`.
-  const capped = (unit) => [
-    `Picture each arrangement of the animals ${join([unit])} still needs, with at most ${num(h.count)} in the outlined cells.`,
-    h.animals.length ? `Every arrangement uses ${h.animals.length === 1 ? 'one cell, so it gets an animal' : `${h.animals.length} cells, so they get animals`}.` : '',
-    h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out in every arrangement, so cross ${it ? 'it' : 'them'} out.` : '',
-  ];
+  // The cells a squeeze fills: `every` names the arrangements they are all part of.
+  const placed = (every) => (!h.animals.length ? ''
+    : h.animals.length === 1 ? `The dashed animal cell is part of ${every}, so it gets an animal.`
+      : `The dashed animal cells are part of ${every}, so they get animals.`);
+  // What squeezing `unit` gives when the outlined cells hold at most `h.count`. That is
+  // one of the two animals it needs, so at least one goes in its other open cells
+  // (dotted): where those all touch, exactly one, and its other animal is the outlined
+  // cells' only one.
+  const capped = (unit) => {
+    const u = join([unit]);
+    const outer = cappedRest(h);
+    if (!outer.length) {
+      return [
+        `Picture each arrangement of the animals ${u} still needs, with at most ${num(h.count)} in the outlined cells.`,
+        placed('every arrangement'),
+        h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out in every arrangement, so cross ${it ? 'it' : 'them'} out.` : '',
+      ];
+    }
+    const one = outer.length === 1;
+    const tight = outer.every((a) => outer.every((b) => near(a, b)));
+    const head = `${cap(u)} still needs 2 animals and at most one of them is outlined, so at least one goes in its other open ${one ? 'cell' : 'cells'} (dotted).`;
+    const stuck = `would leave ${u} no way to place both`;
+    // Animals other than a lone dotted cell, which has its own sentence.
+    const forced = tight && one ? h.animals.filter((a) => !same(a, outer[0])) : h.animals;
+    const needed = !forced.length ? ''
+      : `Without the ${forced.length < h.animals.length ? 'other ' : ''}dashed animal ${forced.length === 1 ? 'cell' : 'cells'}, ${u} has no way to place both, so ${forced.length === 1 ? 'it gets an animal' : 'they get animals'}.`;
+    if (!tight) {
+      const blocks = h.crosses.length && h.crosses.every((x) => outer.every((c) => !same(c, x) && near(c, x)));
+      return [
+        head,
+        needed,
+        !h.crosses.length ? ''
+          : blocks ? `${it ? 'The dashed ✕ cell touches' : 'Each dashed ✕ cell touches'} every dotted cell, so an animal there would push both of ${u}'s animals into the outlined cells. Cross ${it ? 'it' : 'them'} out.`
+            : `An animal on ${it ? 'the dashed ✕ cell' : 'any dashed ✕ cell'} ${stuck}, so cross ${it ? 'it' : 'them'} out.`,
+      ];
+    }
+    // The outlined cells outside the unit, all crossed out, and any other crosses.
+    const claimed = h.crosses.filter((x) => h.focus.some((c) => same(c, x)) && !h.squeezed.some((c) => same(c, x)));
+    const more = h.crosses.length - claimed.length;
+    return [
+      head,
+      one ? (forced.length < h.animals.length ? 'That is the only one, so it gets an animal.' : '')
+        : 'Those all touch, so they hold exactly one.',
+      `${cap(u)}'s other animal is outlined, and it is the only animal the outlined cells hold${claimed.length ? `, so cross out the outlined ${claimed.length === 1 ? 'cell' : 'cells'} outside ${u}` : ''}.`,
+      needed,
+      !more ? ''
+        : `An animal on ${claimed.length ? (more === 1 ? 'the other dashed ✕ cell' : 'any other dashed ✕ cell') : it ? 'the dashed ✕ cell' : 'any dashed ✕ cell'} ${stuck}, so cross ${more === 1 ? 'it' : 'them'} out${claimed.length ? ' too' : ''}.`,
+    ];
+  };
+  // Where the outlined cells split into one group of touching cells per animal: that, and
+  // what it gives. `limits` is what else the animals must respect, if anything.
+  const groups = touchingGroups(h);
+  const same = (a, b) => a[0] === b[0] && a[1] === b[1];
+  const near = (a, b) => Math.abs(a[0] - b[0]) <= 1 && Math.abs(a[1] - b[1]) <= 1;
+  const oneEach = () => `The outlined cells form ${h.count} groups of touching cells, and touching cells hold one animal at most, so each group gets exactly one.`;
+  const grouped = (limits) => {
+    // The easy cases: an animal alone in its group, a cross touching all of some group.
+    const alone = h.animals.every((a) => groups.some((g) => g.length === 1 && same(g[0], a)));
+    const empties = h.crosses.every((x) => groups.some((g) => g.every((c) => !same(c, x) && near(c, x))));
+    const many = h.animals.length > 1;
+    return [
+      oneEach(),
+      (alone || !h.animals.length) && (empties || !h.crosses.length) ? ''
+        : `Picture each way to pick them, with none touching${limits ? `, and ${limits}` : ''}.`,
+      !h.animals.length ? ''
+        : alone ? `The dashed animal ${many ? 'cells are groups of their own, so they get animals' : 'cell is a group of its own, so it gets an animal'}.`
+          : `The dashed animal ${many ? 'cells are picked every way, so they get animals' : 'cell is picked every way, so it gets an animal'}.`,
+      !h.crosses.length ? ''
+        : empties ? `${it ? 'The dashed ✕ cell touches' : 'Each dashed ✕ cell touches'} every cell of one group, so an animal there would leave that group empty. Cross ${it ? 'it' : 'them'} out.`
+          : `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out every way, so cross ${it ? 'it' : 'them'} out.`,
+    ];
+  };
   // What a squeeze concludes, for the cells it marks.
   const outcome = () => [
-    h.animals.length ? `Every arrangement uses ${h.animals.length === 1 ? 'one cell, so it gets an animal' : `${h.animals.length} cells, so they get animals`}.` : '',
+    placed('every arrangement'),
     h.crosses.length ? `The dashed ✕ ${h.crosses.length === 1 ? 'cell is' : 'cells are'} ruled out in every arrangement, so cross ${h.crosses.length === 1 ? 'it' : 'them'} out.` : '',
   ].filter(Boolean).join(' ');
   switch (h.rule) {
@@ -322,7 +450,10 @@ function twoAnimalText(h, theme) {
       return `${name}: every open cell of ${join(first)} lies in ${join(rest)}. ${first.length === 1 ? 'It still needs' : 'They still need'} ${animals(h.count)}, which is all ${join(rest)} ${rest.length === 1 ? 'has' : 'have'} left. Cross out everything else in ${join(rest)}.`;
     case 'small_squeeze':
     case 'squeeze':
-      return `${name}: ${join(us)} still needs ${animals(h.count)} in its outlined cells, with none touching. ${outcome()}`;
+      return [
+        `${name}: ${join(us)} still needs ${animals(h.count)} in its outlined cells, with none touching.`,
+        ...(groups ? grouped('') : [outcome()]),
+      ].filter(Boolean).join(' ');
     case 'crowded_squeeze': {
       // units: the squeezed unit, then the units too short of room for some arrangements.
       const short = us.slice(1);
@@ -334,8 +465,9 @@ function twoAnimalText(h, theme) {
         : h.filling === 1 ? `an animal that fills ${lines}` : `animals that fill ${lines}`;
       return [
         `${name}: ${join(us.slice(0, 1))} still needs ${animals(h.count)} in its outlined cells, with none touching.`,
+        groups ? oneEach() : '',
         short.length ? `${join(short)} ${short.length === 1 ? 'has' : 'each have'} room for only one more, which rules some arrangements out.` : '',
-        h.animals.length ? `${every[0].toUpperCase()}${every.slice(1)} uses ${h.animals.length === 1 ? 'one cell, so it gets an animal' : `${h.animals.length} cells, so they get animals`}.` : '',
+        placed(every),
         h.filled.length
           ? `In ${every}, the dashed ✕ ${it ? 'cell' : 'cells'} either ${it ? 'touches' : 'touch'} one of those animals, or ${it ? 'is' : 'are'} in the path of ${path}. Either way, cross ${it ? 'it' : 'them'} out.`
           : h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out in ${every}, so cross ${it ? 'it' : 'them'} out.` : '',
@@ -343,13 +475,20 @@ function twoAnimalText(h, theme) {
     }
     case 'leftover':
     case 'wide_leftover': {
+      const limits = 'no row, column, or territory taking more than it has room for';
+      const many = h.animals.length > 1;
       return [
         `${name}: ${leftover()}`,
-        h.count === 1
-          ? 'Picture each place that animal can go in the outlined cells, with no row, column, or territory taking more than it has room for.'
-          : `Picture each arrangement of those ${h.count} animals in the outlined cells, with none touching, and no row, column, or territory taking more than it has room for.`,
-        h.animals.length ? `Every arrangement uses ${h.animals.length === 1 ? 'one cell, so it gets an animal' : `${h.animals.length} cells, so they get animals`}.` : '',
-        h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out ${h.count === 1 ? 'wherever it goes' : 'in every arrangement'}, so cross ${it ? 'it' : 'them'} out.` : '',
+        ...(groups ? grouped(limits) : h.count === 1 ? [
+          `Picture each place that animal can go in the outlined cells, with ${limits}.`,
+          placed('every arrangement'),
+          h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out wherever it goes, so cross ${it ? 'it' : 'them'} out.` : '',
+        ] : [
+          // No groups to count: say what each marked cell would do to the rest.
+          `Those ${h.count} animals go in the outlined cells with none touching, and ${limits}.`,
+          h.animals.length ? `Without the dashed animal ${many ? 'cells' : 'cell'}, the outlined cells have no way to hold ${h.count}, so ${many ? 'they get animals' : 'it gets an animal'}.` : '',
+          h.crosses.length ? `An animal on ${it ? 'the dashed ✕ cell' : 'any dashed ✕ cell'} would leave the outlined cells no way to hold ${h.count}, so cross ${it ? 'it' : 'them'} out.` : '',
+        ]),
       ].filter(Boolean).join(' ');
     }
     case 'mixed_band': {

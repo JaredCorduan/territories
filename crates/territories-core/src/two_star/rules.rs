@@ -149,7 +149,8 @@ impl Rule {
 ///   in territories for `ClaimedRegion` and the `LineBand`s).
 /// - leftovers: lines and then the territories they touch (the leftover is
 ///   the rest of those territories), or territories and then the lines
-///   they lie within (the leftover is the rest of those lines).
+///   they lie within (the leftover is the rest of those lines). A leftover
+///   that is every open cell of some lines names just those lines.
 ///
 /// - crowded squeeze: the squeezed unit, then the units with too little
 ///   room for some of its arrangements.
@@ -188,6 +189,10 @@ pub struct Deduction {
     /// For a loose leftover: the other territories with open cells in its
     /// lines.
     pub others: Vec<Unit>,
+    /// For a leftover cap or a loose leftover that squeezes a unit: that
+    /// unit's open cells.
+    #[serde(default)]
+    pub squeezed: Vec<Cell>,
 }
 
 /// A set of cells, as a bitmask over row-major cell numbers.
@@ -365,6 +370,7 @@ impl<'a> View<'a> {
             line_need: 0,
             inner: 0,
             others: Vec::new(),
+            squeezed: Vec::new(),
         }
     }
 
@@ -591,12 +597,27 @@ impl<'a> View<'a> {
         self.leftovers(rule == Rule::WideLeftover).into_iter().find_map(|(cells, count, dir, mask)| {
             let (animals, crosses) = self.certain(cells, count, true);
             (animals | crosses != 0).then(|| {
-                let (units, line_need) = self.describe(&self.open_lines(dir), mask);
+                let (units, line_need) = match self.whole_lines(cells, count) {
+                    Some(lines) => (lines, count),
+                    None => self.describe(&self.open_lines(dir), mask),
+                };
                 Deduction {
                     line_need: line_need as usize,
                     ..self.deduction(rule, animals, crosses, cells, units, count)
                 }
             })
+        })
+    }
+
+    /// The rows, or the columns, whose open cells are exactly `cells` and
+    /// that need `count` animals between them, if any do: the simplest way
+    /// to tell a leftover that is all of some lines.
+    fn whole_lines(&self, cells: Set, count: u32) -> Option<Vec<usize>> {
+        (0..2).find_map(|dir| {
+            let lines: Vec<usize> = self.open_lines(dir).into_iter().filter(|&u| self.cands(u) & !cells == 0).collect();
+            let covered = lines.iter().fold(0, |acc, &u| acc | self.cands(u));
+            let need: u32 = lines.iter().map(|&u| self.need(u)).sum();
+            (covered == cells && need == count).then_some(lines)
         })
     }
 
@@ -661,6 +682,7 @@ impl<'a> View<'a> {
             Some(Deduction {
                 line_need: line_need as usize,
                 inner,
+                squeezed: self.b.list(self.cands(u)),
                 ..self.deduction(Rule::LeftoverCap, animals, crosses, cells, units, count)
             })
         })
@@ -700,6 +722,7 @@ impl<'a> View<'a> {
                                 filling: least as usize,
                                 inner: len,
                                 others,
+                                squeezed: if left == 0 { Vec::new() } else { self.b.list(self.cands(u)) },
                                 ..self.deduction(Rule::Loose, animals, crosses, rest, units, left)
                             });
                         }

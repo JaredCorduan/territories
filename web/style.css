@@ -9,6 +9,9 @@
   --wall: #1d1d1f;
   --bad: #d7263d;
   --target: #3563e9;
+  /* Boxes around hinted groups: light with a dark edge, to stand apart from the walls. */
+  --box: #ffffff;
+  --box-edge: drop-shadow(0 0 1px rgb(0 0 0 / 0.9));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,6 +23,8 @@
     --line: #3a3a40;
     --accent: #6b8cff;
     --accent-fg: #0d0d10;
+    --box: var(--fg);
+    --box-edge: none;
   }
 }
 
@@ -110,7 +115,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 /* A dark territory gets light marks. */
 .cell.dark { color: #f4f2ec; }
-.cell.x::before {
+.cell.x::before, .cell.hl-cross::before {
   content: "";
   width: 34%;
   height: 34%;
@@ -120,7 +125,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   -webkit-mask: var(--cross) center / contain no-repeat;
   mask: var(--cross) center / contain no-repeat;
 }
-.cell.animal::before {
+.cell.animal::before, .cell.hl-animal::before {
   content: "";
   width: 74%;
   height: 74%;
@@ -172,7 +177,33 @@ button:disabled { opacity: 0.4; cursor: default; }
   box-shadow: 0 0 0 1px var(--bg);
   pointer-events: none;
 }
+/* One cell's share of the box around a group of touching cells: an edge is drawn,
+   set in from the cell's side, wherever the group stops. */
+.hl-group {
+  --in: 2px;
+  position: absolute;
+  inset: 0;
+  border: 0 solid var(--box);
+  filter: var(--box-edge);
+  pointer-events: none;
+}
+.hl-group.top { top: var(--in); border-top-width: 3px; }
+.hl-group.right { right: var(--in); border-right-width: 3px; }
+.hl-group.bottom { bottom: var(--in); border-bottom-width: 3px; }
+.hl-group.left { left: var(--in); border-left-width: 3px; }
+/* A capped squeeze's other cells. */
+.hl-group.dotted { border-style: dotted; }
+/* A dashed outline steps inside the group's box. */
+.cell.hl-grouped.hl-target { outline-offset: -9px; }
+/* The inside corner of an L: its edges face away from the corner it sits in. */
+.hl-group.corner { inset: auto; width: var(--in); height: var(--in); border-width: 0; }
+.hl-group.corner.top { top: 0; border-bottom-width: 3px; }
+.hl-group.corner.bottom { bottom: 0; border-top-width: 3px; }
+.hl-group.corner.left { left: 0; border-right-width: 3px; }
+.hl-group.corner.right { right: 0; border-left-width: 3px; }
 .cell.hl-bad { outline: 3px solid var(--bad); outline-offset: -5px; }
+/* A hinted cell previews its mark, faintly, so animals and crosses read apart. */
+.cell.hl-cross:not(.x)::before, .cell.hl-animal:not(.animal)::before { opacity: 0.4; }
 @keyframes pulse { 50% { outline-color: transparent; } }
 @media (prefers-reduced-motion: reduce) { .cell.hl-target { animation: none; } }
 

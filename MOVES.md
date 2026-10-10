@@ -126,7 +126,7 @@ A A A            A needs two: they take the ends,
 
 **Mixed band** (`mixed_band`): a band whose units are a mix of kinds. Units that share no open cell (say a row and a territory), with all their open cells inside units needing just as many animals (say two columns, or a row and a column): X everything else in those. Where two of the outer units cross, X that cell too.
 
-**Leftover cap** (`leftover_cap`): a leftover holds a known number of animals, so no other unit takes more than that from its cells. Squeeze a unit counting that limit.
+**Leftover cap** (`leftover_cap`): a leftover holds a known number of animals, so no other unit takes more than that from its cells. Squeeze a unit counting that limit. In practice the leftover holds one and the unit needs two, so at least one of the unit's animals goes in its open cells outside the leftover. If those all touch, they hold exactly one, the unit's other animal is the leftover's only one, and the rest of the leftover is X'd.
 
 **Loose leftover** (`loose`): a run of one to three lines shares its animals among the territories crossing it, and each takes only what fits in its part of the run. A territory the others can't cover for must take at least what remains, so the rest of it holds at most what it has left: X it if that is none, or else squeeze another unit counting that limit.
 

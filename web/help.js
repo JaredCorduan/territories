@@ -34,7 +34,7 @@ const TWO_ANIMAL_MOVES = {
     ['last_spots', 'Last spots', 'When a row, column, or territory has exactly as many open cells as animals it still needs, they all get animals.'],
     ['claimed_line', 'Claimed line', "When all of a territory's open cells lie in one row (or column), and the territory still needs as many animals as that line does, the line's animals are all the territory's. Cross out the rest of the line.\nUsually both need two. It also works when both need one, or when two territories that need one each share a line that needs two."],
     ['claimed_region', 'Claimed territory', "The reverse: when all of a row's (or column's) open cells lie inside one territory, and the line still needs as many animals as the territory does, the territory's animals are all in that line. Cross out the rest of the territory."],
-    ['small_squeeze', 'Small squeeze', "When a row, column, or territory is down to four open cells or fewer, there are only a few arrangements left for its animals, since they can't touch. Picture each arrangement and look for what they all have in common.\nIf a cell holds an animal in every arrangement, put an animal there. If a cell holds an animal in none of them, cross it out. And if a cell outside the unit touches an animal in every arrangement, cross it out too.\nFor example, when three open cells in a line need two animals, the only arrangement is the two ends. They get animals and the middle is crossed out.\nOr when two touching open cells need one animal, it goes in one or the other, so every cell that touches both is crossed out."],
+    ['small_squeeze', 'Small squeeze', "When a row, column, or territory is down to four open cells or fewer, there are only a few arrangements left for its animals, since they can't touch. Picture each arrangement and look for what they all have in common.\nIf a cell holds an animal in every arrangement, put an animal there. If a cell holds an animal in none of them, cross it out. And if a cell outside the unit touches an animal in every arrangement, cross it out too.\nFor example, when three open cells in a line need two animals, the only arrangement is the two ends. They get animals and the middle is crossed out.\nOr when two touching open cells need one animal, it goes in one or the other, so every cell that touches both is crossed out.\nA shortcut for any squeeze: cells that all touch hold one animal at most. When the open cells fall into as many such groups as there are animals to place, each group gets exactly one."],
   ],
   medium: [
     ['squeeze', 'Squeeze', 'The small squeeze with any number of open cells. Long thin shapes and shapes that fall into two clumps are the ones to look for: four open cells in a line rule out the cells on both sides of all four.'],
@@ -50,7 +50,7 @@ const TWO_ANIMAL_MOVES = {
   brutal: [
     ['wide_leftover', 'Wide leftover', "The leftover, counting two or more neighboring rows (or columns) together.\nIt works in two directions. If every open cell of those rows lies in a few territories, the rows take their share and the rest of those territories holds what is left over. Or if some territories lie entirely inside those rows, they take their share and the rest of the rows holds what is left over.\nCount only the animals still to place: a row that already has one needs just one more. Then squeeze the leftover cells as a unit of their own."],
     ['mixed_band', 'Mixed band', "A band whose units are a mix of kinds. A row and a territory that share no open cell need their animals separately. If all their open cells lie inside two columns, they need everything those columns have left, so cross out the rest of the columns.\nThe units they fit inside can be a mix too, such as a row and a column. Then the cell where the two cross is also crossed out: an animal there would use up room in both."],
-    ['leftover_cap', 'Leftover cap', "A leftover tells you exactly how many animals its cells hold. That number is also a limit for any row, column or territory that overlaps those cells: it can't place more of its own animals there than the leftover holds.\nSay the leftover cells hold exactly one animal, and a column needs two with most of its open cells among them. Only one of the column's animals can come from the leftover. Squeeze the column with that in mind: picture each arrangement that takes at most one from the leftover cells, and look for what they all have in common."],
+    ['leftover_cap', 'Leftover cap', "A leftover tells you exactly how many animals its cells hold. That number is also a limit for any row, column or territory that overlaps those cells: it can't place more of its own animals there than the leftover holds.\nSay the leftover cells hold exactly one animal, and a territory that needs two has some of its open cells among them. At most one of the territory's animals is in the leftover, so at least one goes in its other open cells.\nIf those other cells all touch, they hold exactly one. The territory's second animal is then in the leftover, and it is the only animal the leftover holds, so cross out the leftover cells outside the territory.\nEither way, cross out any cell where an animal would leave the territory no way to place both: one that touches all of its other open cells, for instance, since that would push both of its animals into the leftover."],
     ['loose', 'Loose leftover', "A leftover with a limit instead of an exact count.\nEvery animal in a row belongs to one of the territories crossing it, and a territory can supply only as many as fit in its part of the row. Pick one territory and add up the most that all the others could supply. If that falls short of what the row needs, the territory you picked must make up the difference inside the row. Whatever it places there it can't place elsewhere, so the rest of that territory holds at most what it has left.\nIf that is none, cross out the rest of the territory. Otherwise use the limit as in Leftover cap: squeeze another unit, knowing how few it can take from those cells. It works with two or three neighboring rows (or columns) as well."],
   ],
 };
@@ -62,12 +62,14 @@ const GAMES = {
     auto: "Placing an animal auto-crosses everything it rules out: its row, column, territory, and neighbors. The automatic ✕'s disappear when you remove the animal.",
     moves: MOVES,
     examples: 'examples.json',
+    legend: 'In examples: striped cells are the units involved, a solid outline marks the key cells, and dashed outlines are the cells the move changes, with a faint ✕ or animal for what goes there.',
   },
   2: {
     rules: 'Each color is a territory. Place two animals in every row, every column, and every territory. Animals never touch, not even diagonally.',
     auto: "Placing an animal auto-crosses the cells touching it, and the second animal in a row, column, or territory auto-crosses the rest of it. The automatic ✕'s disappear when you remove the animal.",
     moves: TWO_ANIMAL_MOVES,
     examples: 'examples-2.json',
+    legend: "In examples: striped cells are the units involved, a solid outline marks the key cells, and dashed outlines are the cells the move changes, with a faint ✕ or animal for what goes there. Key cells sharing one box are a group of touching cells, which gets exactly one animal. A dotted box marks a unit's open cells outside the key cells, where at least one of its animals must go.",
   },
 };
 
@@ -149,6 +151,7 @@ function render(stars, level, examples) {
   document.getElementById('rules').textContent = GAMES[stars].rules;
   document.getElementById('auto').textContent = GAMES[stars].auto;
   document.getElementById('level-note').textContent = NOTES[level];
+  document.getElementById('legend').textContent = GAMES[stars].legend;
   const root = document.getElementById('moves');
   root.replaceChildren(...GAMES[stars].moves[level].map(([rule, title, text]) => {
     const sec = document.createElement('section');
