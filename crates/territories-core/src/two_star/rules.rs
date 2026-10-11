@@ -193,6 +193,21 @@ pub struct Deduction {
     /// unit's open cells.
     #[serde(default)]
     pub squeezed: Vec<Cell>,
+    /// For a leftover holding two or more: its cells split into parts
+    /// whose limits add up to `count`, if they split that way. Every part
+    /// then holds exactly its limit.
+    #[serde(default)]
+    pub parts: Vec<Part>,
+}
+
+/// Some of a leftover's cells, which hold `count` animals at most: all
+/// that `unit` (a line) still needs, or one where the cells all touch
+/// (no unit).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Part {
+    pub cells: Vec<Cell>,
+    pub count: usize,
+    pub unit: Option<Unit>,
 }
 
 /// A set of cells, as a bitmask over row-major cell numbers.
@@ -371,6 +386,7 @@ impl<'a> View<'a> {
             inner: 0,
             others: Vec::new(),
             squeezed: Vec::new(),
+            parts: Vec::new(),
         }
     }
 
@@ -601,12 +617,59 @@ impl<'a> View<'a> {
                     Some(lines) => (lines, count),
                     None => self.describe(&self.open_lines(dir), mask),
                 };
+                let parts = if count < 2 { Vec::new() } else { self.split(cells, count).unwrap_or_default() };
                 Deduction {
                     line_need: line_need as usize,
+                    parts: parts
+                        .into_iter()
+                        .map(|(cells, most, unit)| Part {
+                            cells: self.b.list(cells),
+                            count: most as usize,
+                            unit: unit.map(|u| self.b.unit(u)),
+                        })
+                        .collect(),
                     ..self.deduction(rule, animals, crosses, cells, units, count)
                 }
             })
         })
+    }
+
+    /// Splits `left` into parts whose limits add up to `budget`: each is
+    /// the cells within one 2x2 block (they touch, so one animal at most)
+    /// or within one line (what it still needs at most). Prefers the
+    /// fewest parts that are lines, then the fewest parts.
+    fn split(&self, left: Set, budget: u32) -> Option<Vec<(Set, u32, Option<usize>)>> {
+        if left == 0 {
+            return (budget == 0).then(Vec::new);
+        }
+        if budget == 0 {
+            return None;
+        }
+        let n = self.b.n;
+        // The first cell in reading order is in its block's top row.
+        let c = left.trailing_zeros() as usize;
+        let (r, k) = (c / n, c % n);
+        let mut options: Vec<(Set, u32, Option<usize>)> = Vec::new();
+        for first in [k, k.saturating_sub(1)] {
+            let block = (r..n.min(r + 2)).flat_map(|rr| (first..n.min(first + 2)).map(move |kk| bit(rr * n + kk)));
+            let part = left & block.fold(0, |acc, cell| acc | cell);
+            if options.iter().all(|o| o.0 != part) {
+                options.push((part, 1, None));
+            }
+        }
+        for u in [r, n + k] {
+            if (1..=budget).contains(&self.need(u)) {
+                options.push((left & self.b.units[u], self.need(u), Some(u)));
+            }
+        }
+        options
+            .into_iter()
+            .filter_map(|(part, most, unit)| {
+                let mut parts = vec![(part, most, unit)];
+                parts.extend(self.split(left & !part, budget - most)?);
+                Some(parts)
+            })
+            .min_by_key(|parts| (parts.iter().filter(|p| p.2.is_some()).count(), parts.len()))
     }
 
     /// The rows, or the columns, whose open cells are exactly `cells` and
@@ -907,6 +970,30 @@ mod tests {
         assert!(d.animals.is_empty());
         assert_eq!(d.crosses, vec![(3, 0)]);
         assert_eq!((d.filled, d.filling), (vec![Unit::Col(0)], 2));
+    }
+
+    /// A leftover of twelve cells holding four: a column with room for
+    /// two, and two groups of touching cells outside it. The rest of the
+    /// column and the cells touching all of a group are crossed out.
+    #[test]
+    fn a_leftover_in_parts() {
+        let rows = [
+            "bcccccdddd", "bbbccbeeed", "abbcbbeedd", "abbbbbeeff", "abbbbeeffg", "ababbhfffg", "aaahhhhhfg",
+            "jajjihihhg", "jjjiiiiihg", "jiiiiiiigg",
+        ];
+        let regions: Vec<Vec<usize>> = rows.iter().map(|row| row.bytes().map(|b| (b - b'a') as usize).collect()).collect();
+        let puzzle = Puzzle::new(&regions).unwrap();
+        let board = Board::new(&puzzle);
+        let d = View::new(&board, &State::new(10)).leftover(Rule::Leftover).unwrap();
+        assert_eq!(d.count, 4);
+        let touching = |cells: &[Cell]| Part { cells: cells.to_vec(), count: 1, unit: None };
+        let column = Part {
+            cells: vec![(0, 8), (2, 8), (3, 8), (4, 8), (5, 8), (6, 8), (9, 8)],
+            count: 2,
+            unit: Some(Unit::Col(8)),
+        };
+        assert_eq!(d.parts, vec![touching(&[(0, 6), (0, 7)]), column, touching(&[(4, 7), (5, 6), (5, 7)])]);
+        assert_eq!(d.crosses, vec![(1, 6), (1, 7), (1, 8), (4, 6), (7, 8), (8, 8)]);
     }
 
     #[test]

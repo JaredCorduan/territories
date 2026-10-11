@@ -151,6 +151,13 @@ export function touchingGroups(h) {
   return covers(sorted, h.count).reduce((best, g) => (!best || alone(g) > alone(best) ? g : best), null);
 }
 
+// A leftover's parts, where its cells don't split into touching groups alone: the lines
+// with room for no more than their share, and groups of touching cells. Their limits add
+// up to `count`, so every part holds exactly its limit.
+export function sharedParts(h) {
+  return h.parts?.length && !touchingGroups(h) ? h.parts : null;
+}
+
 // A capped squeeze's other cells: the squeezed unit's open cells outside the outlined
 // ones. The outlined cells hold one of its two animals at most, so these hold the rest.
 function cappedRest(h) {
@@ -178,7 +185,8 @@ function boxGroup(board, group, kind = '') {
 }
 
 // Shows a hint (or example deduction) on the cells: striped units, solid
-// focus outline (one box per group of touching cells, where a rule counts those),
+// focus outline (one box per group of touching cells, where a rule counts those; a
+// leftover in parts boxes its touching groups and outlines its other cells singly),
 // dotted box on a capped squeeze's other cells,
 // dashed outline and a faint mark on cells that change, red on mistakes.
 export function showHighlights(cells, regions, h) {
@@ -202,10 +210,16 @@ export function showHighlights(cells, regions, h) {
   }
   const side = SQUARE_SIDE[h.rule];
   const groups = touchingGroups(h);
+  const parts = sharedParts(h);
   if (groups) {
     for (const group of groups) {
       group.forEach((c) => at(c).classList.add('hl-grouped'));
       boxGroup(board, group);
+    }
+  } else if (parts) {
+    for (const part of parts) {
+      part.cells.forEach((c) => at(c).classList.add(part.unit ? 'hl-focus' : 'hl-grouped'));
+      if (!part.unit) boxGroup(board, part.cells);
     }
   } else if (side) {
     // focus lists each square's cells, top-left first: outline whole squares.
@@ -429,6 +443,59 @@ function twoAnimalText(h, theme) {
           : `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out every way, so cross ${it ? 'it' : 'them'} out.`,
     ];
   };
+  // A leftover in parts (see `sharedParts`): why every part is full, and what that gives.
+  const shared = (parts) => {
+    const lines = parts.filter((p) => p.unit);
+    const touch = parts.filter((p) => !p.unit);
+    const lineName = (p) => unitNameOf(p.unit, theme);
+    const inPart = (p, x) => p.cells.some((c) => same(c, x));
+    const inLine = (p, x) => ('row' in p.unit ? p.unit.row === x[0] : p.unit.col === x[1]);
+    const list = (items) => items.join(items.length === 2 ? ' and ' : ', ').replace(/, ([^,]*)$/, ', and $1');
+    // Where the animals can go, and what having no room to spare gives each part.
+    const most = [
+      ...lines.map((p) => `at most ${num(p.count)} in ${lineName(p)}`),
+      ...(touch.length > 1 ? [`at most one in each of the ${touch.length} boxed groups of touching cells`]
+        : !touch.length ? []
+          : touch[0].cells.length > 1 ? ['at most one in the boxed cells (they all touch)'] : ['one in the boxed cell']),
+    ];
+    const each = [
+      ...lines.map((p) => `${lineName(p)}'s ${p.count === 1 ? 'animal is' : `${p.count} animals are`} outlined`),
+      ...(touch.length > 1 ? ['each group gets exactly one']
+        : !touch.length ? [] : [`the boxed ${touch[0].cells.length > 1 ? 'cells get exactly' : 'cell gets'} one`]),
+    ];
+    const sure = h.animals.every((a) => parts.some((p) => p.cells.length === p.count && inPart(p, a)));
+    const many = h.animals.length > 1;
+    // Crosses, by what rules them out: a full line, a group they would empty, or more.
+    let left = h.crosses;
+    const take = (test) => {
+      const found = left.filter(test);
+      left = left.filter((x) => !found.includes(x));
+      return found;
+    };
+    let said = false;
+    const out = (xs, why) => {
+      if (!xs.length) return '';
+      const one = xs.length === 1;
+      const text = why(one, said ? 'other ' : '') + ` Cross ${one ? 'it' : 'them'} out${said ? ' too' : ''}.`;
+      said = true;
+      return text;
+    };
+    const full = lines.filter((p) => take((x) => inLine(p, x) && !inPart(p, x)).length);
+    said = full.length > 0;
+    const group = touch.length > 1 ? ['every cell of one group', 'that group']
+      : touch[0]?.cells.length > 1 ? ['every boxed cell', 'them'] : ['the boxed cell', 'it'];
+    const empties = take((x) => touch.some((p) => !inPart(p, x) && p.cells.every((c) => near(c, x))));
+    return [
+      `The outlined cells hold ${list(most)}.`,
+      `That is ${h.count} at most, so ${list(each)}.`,
+      !h.animals.length ? ''
+        : sure ? `That takes ${many ? 'every dashed animal cell, so they get animals' : 'the dashed animal cell, so it gets an animal'}.`
+          : `The dashed animal ${many ? 'cells are' : 'cell is'} used however those are filled, so ${many ? 'they get animals' : 'it gets an animal'}.`,
+      full.length ? `Cross out the rest of ${list(full.map(lineName))}.` : '',
+      out(empties, (one, other) => `${one ? `The ${other}dashed ✕ cell touches` : other ? 'The other dashed ✕ cells each touch' : 'Each dashed ✕ cell touches'} ${group[0]}, so an animal there would leave ${group[1]} empty.`),
+      out(left, (one, other) => `The ${other}dashed ✕ ${one ? 'cell is' : 'cells are'} ruled out however those are filled.`),
+    ];
+  };
   // What a squeeze concludes, for the cells it marks.
   const outcome = () => [
     placed('every arrangement'),
@@ -479,7 +546,7 @@ function twoAnimalText(h, theme) {
       const many = h.animals.length > 1;
       return [
         `${name}: ${leftover()}`,
-        ...(groups ? grouped(limits) : h.count === 1 ? [
+        ...(groups ? grouped(limits) : sharedParts(h) ? shared(sharedParts(h)) : h.count === 1 ? [
           `Picture each place that animal can go in the outlined cells, with ${limits}.`,
           placed('every arrangement'),
           h.crosses.length ? `The dashed ✕ ${it ? 'cell is' : 'cells are'} ruled out wherever it goes, so cross ${it ? 'it' : 'them'} out.` : '',
