@@ -106,9 +106,9 @@ A A A            A needs two: they take the ends,
 
 ### Medium
 
-**Squeeze** (`squeeze`): the same on a unit with any number of open cells. Four open cells in a line X the cells on both sides of all four.
+**Squeeze** (`squeeze`): the same on a unit with any number of open cells, but only where a count shows it, never by trying every arrangement. Open cells that all touch hold one animal at most. If the open cells split into as many touching groups as the unit needs animals, each group gets exactly one, so a cell touching all of one group is X'd. If an animal on a cell would leave open cells that hold too few, X that cell; if the open cells hold too few without one of them, it gets an animal. Four open cells in a line X the cells on both sides of all four.
 
-**Crowded squeeze** (`crowded_squeeze`): a squeeze that also counts the room other units have left. A row that already holds an animal takes only one more.
+**Crowded squeeze** (`crowded_squeeze`): a squeeze whose count also uses the room other units have left. A row that already holds an animal takes only one more, so the unit's open cells in that row hold one at most.
 
 **Territory band, 2** (`region_band_2`): Claimed line with two lines: territories inside two lines that need all the animals those lines do. X everything else in those lines.
 
@@ -118,7 +118,7 @@ A A A            A needs two: they take the ends,
 
 **Territory band / Line band, 3+** (`region_band_3`, `line_band_3`): the same with three or more lines.
 
-**Leftover** (`leftover`): one line and the territories it touches leave a set of cells holding a known number of animals. If a row's open cells all lie in two territories, the row takes two of their four animals, so the rest of those territories holds exactly two. Then squeeze those cells as if they were a unit.
+**Leftover** (`leftover`): one line and the territories it touches leave a set of cells holding a known number of animals. If a row's open cells all lie in two territories, the row takes two of their four animals, so the rest of those territories holds exactly two. Then squeeze those cells as if they were a unit, by the same count: touching groups hold one each, and a line or territory holds what it has room for.
 
 ### Brutal
 

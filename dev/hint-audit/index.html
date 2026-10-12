@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hint audit</title>
+<!-- Everything loads as it does in web/, so serve the repository root:
+     python3 -m http.server 8001, then open http://localhost:8001/dev/hint-audit/ -->
+<base href="../../web/">
+<link rel="stylesheet" href="style.css">
+<style>
+  body { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  table { border-collapse: collapse; margin: 12px 0 24px; }
+  th, td { padding: 4px 12px; text-align: right; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  .hints { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 28px 24px; }
+  .hints .board { --size: min(100%, 340px); aspect-ratio: 1; height: auto; cursor: default; }
+  .hints h3 { margin: 0 0 2px; font-size: 1.05rem; }
+  .hints .where { color: var(--muted); font-size: 0.85rem; margin: 0 0 6px; }
+  .hints .text { font-size: 0.92rem; }
+</style>
+</head>
+<body>
+<h1>Hint audit</h1>
+<p id="summary"></p>
+<table id="rules"></table>
+<div id="hints" class="hints"></div>
+<script type="module">
+import { buildBoard, showHighlights, hintText, themeFor } from './common.js';
+
+const { played, rules, worst } = await (await fetch('../dev/hint-audit/worst.json')).json();
+const el = (tag, text, cls) => {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+};
+document.getElementById('summary').textContent = `Two-animal hints that leave the working to the player ("picture each arrangement", "ruled out every way"), from ${played} stored puzzles. Arrangements are the ways the animals could go in the cells the hint asks about. Below the table: the worst ${worst.length}, a few per move, most arrangements first.`;
+const table = document.getElementById('rules');
+const head = el('tr');
+['Move', 'Hints', 'Fall back', 'Median', '90th pct', 'Most', 'Over 10'].forEach((t) => head.append(el('th', t)));
+table.append(head);
+for (const r of rules) {
+  const row = el('tr');
+  [r.rule, r.hints, r.fallback, r.median, r.p90, r.max, r.over10].forEach((t) => row.append(el('td', t)));
+  table.append(row);
+}
+const hints = document.getElementById('hints');
+for (const w of worst) {
+  const n = w.regions.length;
+  const h = { kind: 'move', ...w.deduction };
+  const theme = themeFor(w.id, n, null, {});
+  const card = el('div');
+  const board = el('div', undefined, 'board');
+  const cells = buildBoard(board, w.regions, theme);
+  cells.forEach((cell, i) => {
+    cell.classList.toggle('animal', w.marks[i] === 'A');
+    cell.classList.toggle('x', w.marks[i] === 'x');
+  });
+  showHighlights(cells, w.regions, h);
+  card.append(
+    el('h3', `${w.rule}: ${w.arrangements} arrangements`),
+    el('p', `${w.id}, after ${w.step} hints`, 'where'),
+    board,
+    el('p', hintText(h, theme, 2), 'text'),
+  );
+  hints.append(card);
+}
+</script>
+</body>
+</html>

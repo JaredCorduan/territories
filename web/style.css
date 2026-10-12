@@ -168,6 +168,8 @@ button:disabled { opacity: 0.4; cursor: default; }
   pointer-events: none;
 }
 .cell.hl-focus { outline: 3px solid var(--fg); outline-offset: -5px; }
+/* A key cell that a supposed animal rules out. */
+.cell.hl-out:not(.hl-target) { outline-color: color-mix(in srgb, var(--fg) 40%, transparent); }
 .cell.hl-target { outline: 3px dashed var(--target); outline-offset: -5px; animation: pulse 1.1s ease-in-out infinite; }
 .hl-block {
   position: absolute;

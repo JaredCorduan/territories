@@ -152,8 +152,6 @@ impl Rule {
 ///   they lie within (the leftover is the rest of those lines). A leftover
 ///   that is every open cell of some lines names just those lines.
 ///
-/// - crowded squeeze: the squeezed unit, then the units with too little
-///   room for some of its arrangements.
 /// - mixed band: the `inner` units that fit, then the units they fit within.
 /// - leftover cap: the leftover's units (as for leftovers), then the
 ///   squeezed unit. `focus` is the leftover and `count` what it holds.
@@ -166,10 +164,8 @@ impl Rule {
 /// `count` is the number of animals the rule counted: those the squeezed
 /// unit still needs, those a band claims, or those a leftover holds.
 ///
-/// `filled` is for a crowded squeeze's crosses: the lines holding them
-/// that the squeezed unit's animals fill, in the arrangements where no
-/// animal touches the crossed cells. `filling` is how many of its animals
-/// it takes to fill each of those lines (0 if they differ, or none do).
+/// The squeezes above `SMALL` and the leftovers mark only what a count
+/// shows: `proof` says which count, over `parts`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Deduction {
     pub rule: Rule,
@@ -178,7 +174,7 @@ pub struct Deduction {
     pub focus: Vec<Cell>,
     pub units: Vec<Unit>,
     pub count: usize,
-    pub filled: Vec<Unit>,
+    /// For a loose leftover: the animals its territory must take.
     pub filling: usize,
     /// For a leftover: the animals its named lines still need. The
     /// territories named need `count` more than that (lines first) or
@@ -193,21 +189,43 @@ pub struct Deduction {
     /// unit's open cells.
     #[serde(default)]
     pub squeezed: Vec<Cell>,
-    /// For a leftover holding two or more: its cells split into parts
-    /// whose limits add up to `count`, if they split that way. Every part
-    /// then holds exactly its limit.
+    /// For a squeeze above `SMALL` or a leftover: the count that shows its
+    /// marks, and the parts counted.
+    #[serde(default)]
+    pub proof: Option<Proof>,
     #[serde(default)]
     pub parts: Vec<Part>,
 }
 
-/// Some of a leftover's cells, which hold `count` animals at most: all
-/// that `unit` (a line) still needs, or one where the cells all touch
-/// (no unit).
+/// A count showing what a squeeze or leftover marks. Its cells (`focus`)
+/// hold exactly `count` animals, and some of them split into parts with a
+/// limit each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Proof {
+    /// The parts are all the cells and their limits add up to `count`, so
+    /// every part is full: a part with as many cells as its limit is all
+    /// animals, and each part's `crosses` would leave it short.
+    Full,
+    /// The parts are the cells other than the animal's, and their limits
+    /// add up to less than `count`.
+    Without,
+    /// The parts are the cells an animal on any of the crosses would
+    /// leave open, with the limits it would leave them. They add up to
+    /// less than `count` (one less, for a cross among the cells).
+    Leaves,
+}
+
+/// Some of a squeeze's or leftover's cells, which hold `count` animals at
+/// most: all that `unit` has room for, or one where the cells all touch
+/// (no unit). `crosses` are the cells a full part rules out: the rest of
+/// its unit, or the cells touching all of it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Part {
     pub cells: Vec<Cell>,
     pub count: usize,
     pub unit: Option<Unit>,
+    pub crosses: Vec<Cell>,
 }
 
 /// A set of cells, as a bitmask over row-major cell numbers.
@@ -329,6 +347,74 @@ fn fit(b: &Board, room: &Room, s: Set, m: u32) -> bool {
     room.take(b, c).is_some_and(|(left, full)| fit(b, &left, rest & !full, m - 1)) || fit(b, room, s & !bit(c), m)
 }
 
+/// Cells that hold a known number of animals at most: the cells, the
+/// limit, and the unit whose room it is (none for cells that all touch).
+type Share = (Set, u32, Option<usize>);
+
+/// The cells of `s` in a 2x2 block whose top row holds the first cell of
+/// `s`, for each such block: they all touch.
+fn blocks(b: &Board, s: Set) -> impl Iterator<Item = Set> {
+    let n = b.n;
+    let c = s.trailing_zeros() as usize;
+    let (r, k) = (c / n, c % n);
+    let block = move |first: usize| {
+        let cells = (r..n.min(r + 2)).flat_map(|rr| (first..n.min(first + 2)).map(move |kk| bit(rr * n + kk)));
+        s & cells.fold(0, |acc, cell| acc | cell)
+    };
+    let (right, left) = (block(k), block(k.saturating_sub(1)));
+    std::iter::once(right).chain((left != right).then_some(left))
+}
+
+/// Every way to split `s` into shares whose limits add up to `budget` at
+/// most: each is the cells within one 2x2 block or, given `room`, within
+/// one unit with room for no more than its limit.
+fn splits(b: &Board, room: Option<&Room>, s: Set, budget: u32) -> Vec<Vec<Share>> {
+    if s == 0 {
+        return vec![Vec::new()];
+    }
+    if budget == 0 {
+        return Vec::new();
+    }
+    let c = s.trailing_zeros() as usize;
+    let mut first: Vec<Share> = blocks(b, s).map(|part| (part, 1, None)).collect();
+    if let Some(room) = room {
+        let units = b.units_of(c).into_iter().map(|u| (s & b.units[u], room.caps[u] as u32, Some(u)));
+        first.extend(units.filter(|share| (1..=budget).contains(&share.1)));
+    }
+    let mut out = Vec::new();
+    for share in first {
+        for mut rest in splits(b, room, s & !share.0, budget - share.1) {
+            rest.insert(0, share);
+            out.push(rest);
+        }
+    }
+    out
+}
+
+/// Whether `splits` finds any way: a count shows `s` holds `budget` at most.
+fn counted(b: &Board, room: Option<&Room>, s: Set, budget: u32) -> bool {
+    if s == 0 {
+        return true;
+    }
+    if budget == 0 {
+        return false;
+    }
+    let c = s.trailing_zeros() as usize;
+    blocks(b, s).any(|part| counted(b, room, s & !part, budget - 1))
+        || room.is_some_and(|room| {
+            b.units_of(c).into_iter().any(|u| {
+                let most = room.caps[u] as u32;
+                (1..=budget).contains(&most) && counted(b, Some(room), s & !b.units[u], budget - most)
+            })
+        })
+}
+
+/// The simplest of some splits: the fewest shares that are units, then the
+/// fewest shares.
+fn simplest(splits: Vec<Vec<Share>>) -> Option<Vec<Share>> {
+    splits.into_iter().min_by_key(|shares| (shares.iter().filter(|share| share.2.is_some()).count(), shares.len()))
+}
+
 /// A position, with each unit's remaining need worked out.
 pub(crate) struct View<'a> {
     b: &'a Board,
@@ -380,12 +466,12 @@ impl<'a> View<'a> {
             focus: self.b.list(focus),
             units: units.into_iter().map(|u| self.b.unit(u)).collect(),
             count: count as usize,
-            filled: Vec::new(),
             filling: 0,
             line_need: 0,
             inner: 0,
             others: Vec::new(),
             squeezed: Vec::new(),
+            proof: None,
             parts: Vec::new(),
         }
     }
@@ -445,78 +531,107 @@ impl<'a> View<'a> {
         (animals, crosses)
     }
 
+    /// What a count shows about `s`, which holds exactly `k` animals: one
+    /// argument's worth of marks (animals, crosses), and the count. With
+    /// `room`, units' remaining room counts too; without, only touching.
+    ///
+    /// A count splits cells into shares that hold a known number at most.
+    /// A split of all of `s` adding up to `k` makes every share full. A
+    /// cell is an animal if `s` holds too few without it, and a cross if
+    /// an animal there would leave `s` too few. Arguments that place an
+    /// animal go first, then full shares, then the crosses that leave `s`
+    /// the same cells.
+    fn argue(&self, s: Set, k: u32, room: Option<Room>) -> Option<(Set, Set, Proof, Vec<Part>)> {
+        let b = self.b;
+        let part = |(cells, most, unit): Share, crosses: Set| Part {
+            cells: b.list(cells),
+            count: most as usize,
+            unit: unit.map(|u| b.unit(u)),
+            crosses: b.list(crosses),
+        };
+        let plain = |shares: Vec<Share>| shares.into_iter().map(|share| part(share, 0)).collect();
+        // Every share full.
+        let full = splits(b, room.as_ref(), s, k).into_iter().filter_map(|shares| {
+            let (mut animals, mut crosses) = (0, 0);
+            let mut parts = Vec::new();
+            for &share in &shares {
+                let (cells, most, unit) = share;
+                if cells.count_ones() == most {
+                    animals |= cells;
+                }
+                let out = match unit {
+                    Some(u) => self.cands(u) & !cells,
+                    None => self::cells(self.open & !cells).filter(|&x| cells & !b.nbrs[x] == 0).fold(0, |acc, x| acc | bit(x)),
+                };
+                parts.push(part(share, out & !crosses));
+                crosses |= out;
+            }
+            (animals | crosses != 0).then_some((shares, animals, crosses, parts))
+        });
+        let full = full.min_by_key(|(shares, animals, ..)| {
+            (*animals == 0, shares.iter().filter(|share| share.2.is_some()).count(), shares.len())
+        });
+        let full = match full {
+            Some((_, animals, crosses, parts)) if animals != 0 => return Some((animals, crosses, Proof::Full, parts)),
+            other => other,
+        };
+        // A cell the rest hold too few without.
+        if let Some(c) = cells(s).find(|&c| counted(b, room.as_ref(), s & !bit(c), k - 1)) {
+            let shares = simplest(splits(b, room.as_ref(), s & !bit(c), k - 1))?;
+            return Some((bit(c), 0, Proof::Without, plain(shares)));
+        }
+        if let Some((_, animals, crosses, parts)) = full {
+            return Some((animals, crosses, Proof::Full, parts));
+        }
+        // Crosses that leave too few, and leave the same.
+        let mut found: Option<(Set, bool, Vec<Share>)> = None;
+        let mut crosses = 0;
+        for c in cells(self.open) {
+            let (after, full) = match room {
+                Some(room) => match room.take(b, c) {
+                    Some(taken) => (Some(taken.0), taken.1),
+                    None => continue,
+                },
+                None => (None, 0),
+            };
+            let killed = b.nbrs[c] | bit(c) | full;
+            let inside = s & bit(c) != 0;
+            let need = k - inside as u32;
+            let rest = s & !killed;
+            if !(inside || killed & s != 0) || need == 0 || !counted(b, after.as_ref(), rest, need - 1) {
+                continue;
+            }
+            let Some(shares) = simplest(splits(b, after.as_ref(), rest, need - 1)) else { continue };
+            match &found {
+                None => found = Some((rest, inside, shares)),
+                Some(first) if *first != (rest, inside, shares) => continue,
+                Some(_) => {}
+            }
+            crosses |= bit(c);
+        }
+        found.map(|(_, _, shares)| (0, crosses, Proof::Leaves, plain(shares)))
+    }
+
     /// `SmallSqueeze`, `Squeeze`, or `CrowdedSqueeze` (as `rule` says) on
-    /// the unit with the fewest open cells that gives anything.
+    /// the unit with the fewest open cells that gives anything. A small
+    /// squeeze marks whatever holds in every arrangement; the others mark
+    /// what a count shows, one argument at a time.
     pub fn squeeze(&self, rule: Rule) -> Option<Deduction> {
         let mut units: Vec<usize> = self.open_units().collect();
         units.sort_by_key(|&u| self.cands(u).count_ones());
         units.into_iter().find_map(|u| {
             let (s, k) = (self.cands(u), self.need(u));
-            if rule == Rule::SmallSqueeze && s.count_ones() > SMALL {
-                return None;
+            if rule == Rule::SmallSqueeze {
+                if s.count_ones() > SMALL {
+                    return None;
+                }
+                let (animals, crosses) = self.certain(s, k, false);
+                return (animals | crosses != 0).then(|| self.deduction(rule, animals, crosses, s, vec![u], k));
             }
-            let (animals, crosses) = self.certain(s, k, rule == Rule::CrowdedSqueeze);
-            if animals | crosses == 0 {
-                return None;
-            }
-            Some(match rule {
-                Rule::CrowdedSqueeze => self.crowded(u, animals, crosses),
-                _ => self.deduction(rule, animals, crosses, s, vec![u], k),
-            })
+            let room = (rule == Rule::CrowdedSqueeze).then(|| self.room());
+            let (animals, crosses, proof, parts) = self.argue(s, k, room)?;
+            Some(Deduction { proof: Some(proof), parts, ..self.deduction(rule, animals, crosses, s, vec![u], k) })
         })
-    }
-
-    /// Every way to put `k` animals in `s` with none touching.
-    fn arrangements(&self, s: Set, k: u32) -> Vec<Set> {
-        if k == 0 {
-            return vec![0];
-        }
-        let mut out = Vec::new();
-        let mut rest = s;
-        for c in cells(s) {
-            rest &= !bit(c);
-            let others = self.arrangements(rest & !self.b.nbrs[c], k - 1);
-            out.extend(others.into_iter().map(|a| a | bit(c)));
-        }
-        out
-    }
-
-    /// A crowded squeeze on unit `u` as one explainable step, given
-    /// everything `certain` found. Either the animals, with the crosses no
-    /// arrangement leaves room for; or, failing those, the crosses that
-    /// share a reason: in every arrangement they touch an animal or lie in
-    /// the same units that the arrangement fills.
-    fn crowded(&self, u: usize, animals: Set, crosses: Set) -> Deduction {
-        let (s, k) = (self.cands(u), self.need(u));
-        let held = |a: Set, v: usize| (a & self.b.units[v]).count_ones();
-        let all = self.arrangements(s, k);
-        let short: Vec<usize> = (0..3 * self.b.n)
-            .filter(|&v| v != u && all.iter().any(|&a| held(a, v) > self.need(v)))
-            .collect();
-        let left: Vec<Set> = all
-            .into_iter()
-            .filter(|&a| (0..3 * self.b.n).all(|v| held(a, v) <= self.need(v)))
-            .collect();
-        let filled = |c: usize| -> Vec<usize> {
-            let apart = left.iter().filter(|&&a| a & self.b.nbrs[c] == 0);
-            let fills = |v: &usize| apart.clone().any(|&a| held(a, *v) == self.need(*v));
-            if s & bit(c) != 0 { Vec::new() } else { self.b.units_of(c).into_iter().filter(fills).collect() }
-        };
-        let plain = cells(crosses).filter(|&c| filled(c).is_empty()).fold(0, |acc, c| acc | bit(c));
-        let (crosses, filled) = if animals | plain != 0 {
-            (plain, Vec::new())
-        } else {
-            let reason = filled(crosses.trailing_zeros() as usize);
-            let same = cells(crosses).filter(|&c| filled(c) == reason).fold(0, |acc, c| acc | bit(c));
-            (same, reason)
-        };
-        let units = std::iter::once(u).chain(short).collect();
-        let room = filled.first().map_or(0, |&v| self.need(v));
-        Deduction {
-            filling: if filled.iter().all(|&v| self.need(v) == room) { room as usize } else { 0 },
-            filled: filled.into_iter().map(|v| self.b.unit(v)).collect(),
-            ..self.deduction(Rule::CrowdedSqueeze, animals, crosses, s, units, k)
-        }
     }
 
     /// Rows (`dir` 0) or columns (1) that still need an animal.
@@ -611,65 +726,18 @@ impl<'a> View<'a> {
     /// a leftover: the rest of the territories the picked lines touch.
     pub fn leftover(&self, rule: Rule) -> Option<Deduction> {
         self.leftovers(rule == Rule::WideLeftover).into_iter().find_map(|(cells, count, dir, mask)| {
-            let (animals, crosses) = self.certain(cells, count, true);
-            (animals | crosses != 0).then(|| {
-                let (units, line_need) = match self.whole_lines(cells, count) {
-                    Some(lines) => (lines, count),
-                    None => self.describe(&self.open_lines(dir), mask),
-                };
-                let parts = if count < 2 { Vec::new() } else { self.split(cells, count).unwrap_or_default() };
-                Deduction {
-                    line_need: line_need as usize,
-                    parts: parts
-                        .into_iter()
-                        .map(|(cells, most, unit)| Part {
-                            cells: self.b.list(cells),
-                            count: most as usize,
-                            unit: unit.map(|u| self.b.unit(u)),
-                        })
-                        .collect(),
-                    ..self.deduction(rule, animals, crosses, cells, units, count)
-                }
+            let (animals, crosses, proof, parts) = self.argue(cells, count, Some(self.room()))?;
+            let (units, line_need) = match self.whole_lines(cells, count) {
+                Some(lines) => (lines, count),
+                None => self.describe(&self.open_lines(dir), mask),
+            };
+            Some(Deduction {
+                line_need: line_need as usize,
+                proof: Some(proof),
+                parts,
+                ..self.deduction(rule, animals, crosses, cells, units, count)
             })
         })
-    }
-
-    /// Splits `left` into parts whose limits add up to `budget`: each is
-    /// the cells within one 2x2 block (they touch, so one animal at most)
-    /// or within one line (what it still needs at most). Prefers the
-    /// fewest parts that are lines, then the fewest parts.
-    fn split(&self, left: Set, budget: u32) -> Option<Vec<(Set, u32, Option<usize>)>> {
-        if left == 0 {
-            return (budget == 0).then(Vec::new);
-        }
-        if budget == 0 {
-            return None;
-        }
-        let n = self.b.n;
-        // The first cell in reading order is in its block's top row.
-        let c = left.trailing_zeros() as usize;
-        let (r, k) = (c / n, c % n);
-        let mut options: Vec<(Set, u32, Option<usize>)> = Vec::new();
-        for first in [k, k.saturating_sub(1)] {
-            let block = (r..n.min(r + 2)).flat_map(|rr| (first..n.min(first + 2)).map(move |kk| bit(rr * n + kk)));
-            let part = left & block.fold(0, |acc, cell| acc | cell);
-            if options.iter().all(|o| o.0 != part) {
-                options.push((part, 1, None));
-            }
-        }
-        for u in [r, n + k] {
-            if (1..=budget).contains(&self.need(u)) {
-                options.push((left & self.b.units[u], self.need(u), Some(u)));
-            }
-        }
-        options
-            .into_iter()
-            .filter_map(|(part, most, unit)| {
-                let mut parts = vec![(part, most, unit)];
-                parts.extend(self.split(left & !part, budget - most)?);
-                Some(parts)
-            })
-            .min_by_key(|parts| (parts.iter().filter(|p| p.2.is_some()).count(), parts.len()))
     }
 
     /// The rows, or the columns, whose open cells are exactly `cells` and
@@ -871,9 +939,8 @@ mod tests {
         View::new(&board, state).squeeze(Rule::Squeeze).unwrap()
     }
 
-    /// A territory down to a cell above a 2x2 block: the top cell is an
-    /// animal, the block's top row is crossed out, and so are the two cells
-    /// below the block (they touch both cells of its bottom row).
+    /// A territory down to a cell above a 2x2 block: without the top cell
+    /// the rest all touch and hold one, so the top cell is an animal.
     #[test]
     fn cell_above_a_block() {
         let n = 9;
@@ -884,11 +951,10 @@ mod tests {
             .collect();
         let d = squeezed(regions, &State::new(n));
         assert_eq!(d.units, vec![Unit::Region(0)]);
-        assert_eq!(d.animals, vec![(2, 3)]);
-        for cell in [(3, 3), (3, 4), (5, 3), (5, 4)] {
-            assert!(d.crosses.contains(&cell), "{cell:?}");
-        }
-        assert!(!d.crosses.contains(&(4, 3)) && !d.crosses.contains(&(4, 4)));
+        assert_eq!((d.animals, d.crosses), (vec![(2, 3)], vec![]));
+        assert_eq!(d.proof, Some(Proof::Without));
+        let block = Part { cells: vec![(3, 3), (3, 4), (4, 3), (4, 4)], count: 1, unit: None, crosses: vec![] };
+        assert_eq!(d.parts, vec![block]);
     }
 
     /// A line down to four open cells in a run: the cells on both sides of
@@ -933,11 +999,10 @@ mod tests {
         let view = View::new(&board, &state);
         assert!(view.squeeze(Rule::Squeeze).is_none_or(|d| d.animals.is_empty()));
         let d = view.squeeze(Rule::CrowdedSqueeze).unwrap();
-        // Teal, then the row with room for only one more.
-        assert_eq!(d.units, vec![Unit::Region(0), Unit::Row(1)]);
+        assert_eq!(d.units, vec![Unit::Region(0)]);
         assert_eq!(d.animals, vec![(0, 0)]);
-        assert!(d.crosses.contains(&(1, 0)) && d.crosses.contains(&(1, 1)));
-        assert!(d.filled.is_empty());
+        // Teal's cells in the row with room for only one more hold one.
+        assert!(d.parts.iter().any(|part| part.unit == Some(Unit::Row(1)) && part.count == 1), "{:?}", d.parts);
     }
 
     /// A territory running down the first column with one more cell in the
@@ -969,7 +1034,10 @@ mod tests {
         assert_eq!(d.units, vec![Unit::Region(0)]);
         assert!(d.animals.is_empty());
         assert_eq!(d.crosses, vec![(3, 0)]);
-        assert_eq!((d.filled, d.filling), (vec![Unit::Col(0)], 2));
+        // An animal there leaves the column's cells, and the column room for one.
+        assert_eq!(d.proof, Some(Proof::Leaves));
+        let column = Part { cells: (5..n).map(|r| (r, 0)).collect(), count: 1, unit: Some(Unit::Col(0)), crosses: vec![] };
+        assert_eq!(d.parts, vec![column]);
     }
 
     /// A leftover of twelve cells holding four: a column with room for
@@ -986,13 +1054,16 @@ mod tests {
         let board = Board::new(&puzzle);
         let d = View::new(&board, &State::new(10)).leftover(Rule::Leftover).unwrap();
         assert_eq!(d.count, 4);
-        let touching = |cells: &[Cell]| Part { cells: cells.to_vec(), count: 1, unit: None };
+        assert_eq!(d.proof, Some(Proof::Full));
+        let touching = |cells: &[Cell], crosses: &[Cell]| Part { cells: cells.to_vec(), count: 1, unit: None, crosses: crosses.to_vec() };
         let column = Part {
             cells: vec![(0, 8), (2, 8), (3, 8), (4, 8), (5, 8), (6, 8), (9, 8)],
             count: 2,
             unit: Some(Unit::Col(8)),
+            crosses: vec![(1, 8), (7, 8), (8, 8)],
         };
-        assert_eq!(d.parts, vec![touching(&[(0, 6), (0, 7)]), column, touching(&[(4, 7), (5, 6), (5, 7)])]);
+        let parts = vec![touching(&[(0, 6), (0, 7)], &[(1, 6), (1, 7)]), column, touching(&[(4, 7), (5, 6), (5, 7)], &[(4, 6)])];
+        assert_eq!(d.parts, parts);
         assert_eq!(d.crosses, vec![(1, 6), (1, 7), (1, 8), (4, 6), (7, 8), (8, 8)]);
     }
 

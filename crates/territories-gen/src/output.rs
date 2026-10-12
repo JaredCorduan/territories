@@ -12,6 +12,10 @@ use territories_core::{Level, Puzzle};
 pub struct Output<S> {
     pub version: u32,
     pub puzzles: Vec<PuzzleOut<S>>,
+    /// The highest id number handed out per `level-size`, where the puzzle
+    /// that had it is gone: ids are never reused.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub last_ids: BTreeMap<String, usize>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

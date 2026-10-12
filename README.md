@@ -69,6 +69,8 @@ which also proves the solution is unique.
   any puzzle whose stored level no longer matches.
   Add `--stars 2` to regrade the two-animal collection, `data/puzzles-2.json`.
 - `dev/zoo/index.html` (open it directly) previews the candidate animals for each color.
+- `cargo run --release -p territories-gen --bin regrade` reports which two-animal puzzles the current rules no longer solve at their level. With `--write` it removes them and re-tallies the rest; run it after changing a rule, then refill with the farm.
+- `node dev/hint-audit/audit.mjs` ranks the two-animal hints that leave the working to the player by how much they ask the player to picture. Serve the repository root and open `dev/hint-audit/` to read the worst ones.
 
 ## Credits
 

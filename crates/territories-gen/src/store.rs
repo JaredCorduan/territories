@@ -1,6 +1,7 @@
 //! A game's permanent puzzle collection (such as `data/puzzles.json`):
 //! add-only, with stable ids and duplicate detection up to rotation and
-//! reflection. The site gets a capped copy (`publish`).
+//! reflection. The site gets a capped copy (`publish`). The one exception
+//! to add-only is `regrade`, for when a game's rules change.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
@@ -87,8 +88,38 @@ impl<S: Clone + Serialize + DeserializeOwned> Store<S> {
             for p in out.puzzles {
                 store.insert_existing(p);
             }
+            for (key, last) in out.last_ids {
+                let bucket = Level::ALL.into_iter().find_map(|level| {
+                    let size = key.strip_prefix(level.name())?.strip_prefix('-')?.parse().ok()?;
+                    Some((size, level))
+                });
+                let next = store.next.entry(bucket.ok_or(format!("bad id bucket {key:?}"))?).or_insert(1);
+                *next = (*next).max(last + 1);
+            }
         }
         Ok(store)
+    }
+
+    /// Regrades every puzzle after a change to the game's rules: `grade`
+    /// gives a puzzle's new move tally, or `None` if it no longer belongs
+    /// (it can't be solved, or not at its level). Those are removed, and
+    /// their ids returned. Ids are still never reused.
+    pub fn regrade(&mut self, grade: impl Fn(&PuzzleOut<S>) -> Option<BTreeMap<String, usize>>) -> Vec<String> {
+        let mut removed = Vec::new();
+        let puzzles = std::mem::take(&mut self.puzzles);
+        self.keys.clear();
+        self.counts.clear();
+        self.rare.clear();
+        for mut p in puzzles {
+            match grade(&p) {
+                Some(moves) => {
+                    p.moves = moves;
+                    self.insert_existing(p);
+                }
+                None => removed.push(p.id),
+            }
+        }
+        removed
     }
 
     fn insert_existing(&mut self, p: PuzzleOut<S>) {
@@ -175,9 +206,22 @@ impl<S: Clone + Serialize + DeserializeOwned> Store<S> {
     pub fn save(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         self.puzzles
             .sort_by_key(|p| (p.size, p.level, id_number(&p.id).unwrap_or(0)));
+        // Where the highest id handed out belongs to a puzzle since removed.
+        let mut held: BTreeMap<(usize, Level), usize> = BTreeMap::new();
+        for p in &self.puzzles {
+            let highest = held.entry((p.size, p.level)).or_default();
+            *highest = (*highest).max(id_number(&p.id).unwrap_or(0));
+        }
+        let last_ids = self
+            .next
+            .iter()
+            .filter(|&(bucket, &next)| next - 1 > held.get(bucket).copied().unwrap_or(0))
+            .map(|(&(size, level), &next)| (format!("{}-{size}", level.name()), next - 1))
+            .collect();
         let json = serde_json::to_string(&Output {
             version: 1,
             puzzles: self.puzzles.clone(),
+            last_ids,
         })?;
         write_atomic(path, &json)
     }
@@ -203,7 +247,7 @@ impl<S: Clone + Serialize + DeserializeOwned> Store<S> {
                 puzzles.push(p.clone());
             }
         }
-        write_atomic(path, &serde_json::to_string(&Output { version: 1, puzzles })?)
+        write_atomic(path, &serde_json::to_string(&Output { version: 1, puzzles, last_ids: BTreeMap::new() })?)
     }
 }
 
