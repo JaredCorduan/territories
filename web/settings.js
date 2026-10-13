@@ -1,4 +1,4 @@
-import { POOLS, deepen, isDark, loadFavorites, saveFavorites } from './common.js';
+import { POOLS, deepen, isDark, loadFavorites, saveFavorites, setIcon } from './common.js';
 
 const favorites = loadFavorites();
 
@@ -13,7 +13,7 @@ for (const { color, name, animals } of POOLS) {
     el.className = isDark(color) ? 'cell dark' : 'cell';
     if (animal) {
       el.classList.add('animal');
-      el.style.setProperty('--icon', `url("animals/${animal}.svg")`);
+      setIcon(el, animal);
     } else {
       el.textContent = '?';
     }

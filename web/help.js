@@ -1,4 +1,4 @@
-import { buildBoard, showHighlights, hintText, themeFor } from './common.js';
+import { buildBoard, showHighlights, hintText, themeFor, setIcon } from './common.js';
 
 // [rule, heading, description] per level; each level lists only its new moves.
 const MOVES = {
@@ -138,7 +138,7 @@ function drawCycle() {
     const el = document.createElement('div');
     el.className = `cell ${state}`;
     el.style.background = color;
-    el.style.setProperty('--icon', `url("animals/${animal}.svg")`);
+    setIcon(el, animal);
     root.append(el);
   });
 }

@@ -94,6 +94,28 @@ export function deepen(hex) {
   return `hsl(${Math.round(h * 60 + 360) % 360} ${Math.round(sat * 100)}% ${Math.round(light)}%)`;
 }
 
+// Each animal's icon as a data: URL, fetched once. A cell's mask is only fetched when
+// its animal first shows, and some browsers leave the cell blank if that fetch is slow
+// or fails, so cells get the icon inline as soon as it has loaded.
+const icons = new Map();
+function inlineIcon(animal) {
+  if (!icons.has(animal)) {
+    const load = fetch(`animals/${animal}.svg`)
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error(res.statusText))))
+      .then((svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+    // A failed load is tried again by the next board.
+    load.catch(() => icons.delete(animal));
+    icons.set(animal, load);
+  }
+  return icons.get(animal);
+}
+
+// Sets the animal that `el` shows (as a cell's mark, or any `--icon` mask).
+export function setIcon(el, animal) {
+  el.style.setProperty('--icon', `url("animals/${animal}.svg")`);
+  inlineIcon(animal).then((url) => el.style.setProperty('--icon', url), () => {});
+}
+
 // Fills `board` with colored, walled cells for `regions`, styled by `theme`
 // (from themeFor); returns the cells.
 export function buildBoard(board, regions, theme) {
@@ -109,7 +131,7 @@ export function buildBoard(board, regions, theme) {
       const { color, animal } = theme[reg];
       el.className = isDark(color) ? 'cell dark' : 'cell';
       el.style.background = color;
-      el.style.setProperty('--icon', `url("animals/${animal}.svg")`);
+      setIcon(el, animal);
       el.style.setProperty('--deep', deepen(color));
       const wall = (dr, dc) => {
         const rr = r + dr, cc = c + dc;
