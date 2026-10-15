@@ -290,8 +290,9 @@ const RULE_NAMES = {
 
 // Explains a hint in the context of the specific board (`theme` names its territories).
 // `stars` is the game: animals per row, column, and territory.
-export function hintText(h, theme, stars = 1) {
-  if (stars === 2 && h.kind === 'move') return twoAnimalText(h, theme);
+// `regions` (optional) lets a two-animal hint say which units a cell is in.
+export function hintText(h, theme, stars = 1, regions = null) {
+  if (stars === 2 && h.kind === 'move') return twoAnimalText(h, theme, regions);
   switch (h.kind) {
     case 'mistake':
       return `Something's off: ${h.cells.length === 1 ? 'the highlighted mark is' : 'the highlighted marks are'} wrong.`;
@@ -369,7 +370,7 @@ const TWO_ANIMAL_NAMES = {
   loose: 'Loose leftover',
 };
 
-function twoAnimalText(h, theme) {
+function twoAnimalText(h, theme, regions) {
   const us = h.units;
   const name = TWO_ANIMAL_NAMES[h.rule] || h.rule;
   const join = (list) => joinUnitsOf(list, theme);
@@ -509,17 +510,26 @@ function twoAnimalText(h, theme) {
           : `${one ? `The ${other}dashed ✕ cell touches` : other ? 'The other dashed ✕ cells each touch' : 'Each dashed ✕ cell touches'} ${group[0]}, so an animal there would ${group[1]}. Cross ${one ? 'it' : 'them'} out${other && ' too'}.`,
       ];
     }
-    // The parts are the outlined cells left (all boxed), and hold too few. `then`: the
-    // units' room is what a supposed animal would leave.
-    const hold = (then) => (h.parts.length > 1
-      ? `${lines.length ? `hold ${list([...lines.map(room), ...(touch.length > 1 ? [`at most one in each of the ${touch.length} groups of touching cells`] : touch.length ? ['at most one in the group of touching cells'] : [])])}` : `form ${touch.length} groups of touching cells, which hold one each`}: ${total} at most`
-      : lines.length ? `are all in ${lineName(lines[0])}, which ${then ? 'would have' : 'has'} room for ${lines[0].count === 1 ? 'only one more' : `only ${lines[0].count}`}`
-        : 'all touch, so they hold one animal at most');
+    // The parts are the outlined cells left (all boxed), and hold too few.
     const needed = (need, more) => `but ${num(need)} ${more ? 'more ' : ''}${need === 1 ? 'is' : 'are'} needed`;
+    const inUnit = ([r, c], u) => ('row' in u ? r === u.row : 'col' in u ? c === u.col : regions && regions[r][c] === u.region);
+    // Boxed cells all in one unit, needing `need` animals: what the unit would end up
+    // with. It has 2 less its room already there or on the ✕ (`x`: the ✕ is in it).
+    const single = h.parts.length === 1 && lines.length === 1;
+    const over = (need, more, x) => {
+      const there = 2 - lines[0].count - (x ? 1 : 0);
+      const with_ = [there ? `${there === 1 ? 'the one' : `the ${there}`} already there` : '', x ? 'the one on the ✕' : ''].filter(Boolean);
+      return `they would need ${num(need)} ${more ? 'more ' : ''}${need === 1 ? 'animal' : 'animals'}. Those are all in ${lineName(lines[0])}, so it would have ${2 - lines[0].count + need} animals${with_.length ? `, counting ${with_.join(' and ')}` : ''}.`;
+    };
+    // Why the boxed cells can't hold the `need` animals, where they span several parts.
+    const hold = (need, more) => (h.parts.length > 1
+      ? `${lines.length ? `hold ${list([...lines.map(room), ...(touch.length > 1 ? [`at most one in each of the ${touch.length} groups of touching cells`] : touch.length ? ['at most one in the group of touching cells'] : [])])}` : `form ${touch.length} groups of touching cells, which hold one each`}: ${total} at most, ${needed(need, more)}`
+      : `all touch, so they hold one animal at most, ${needed(need, more)}`);
     if (h.proof === 'without') {
       return [
         lone ? `Without the dashed animal cell, only the boxed cell is left, ${needed(h.count)}.`
-          : `Without the dashed animal cell, the outlined cells left (boxed) ${hold(false)}, ${needed(h.count)}.`,
+          : single ? `Without the dashed animal cell, only the boxed cells are left, and ${over(h.count, false, false)}`
+            : `Without the dashed animal cell, the outlined cells left (boxed) ${hold(h.count)}.`,
         'So it gets an animal.',
       ];
     }
@@ -529,7 +539,8 @@ function twoAnimalText(h, theme) {
     return [
       !h.parts.length ? `${there} leave no ${inside ? 'other ' : ''}outlined cell open${inside ? `, ${needed(need, true)}` : ''}.`
         : lone ? `${there} leave only the boxed cell open, ${needed(need, inside)}.`
-          : `${there} leave only the boxed cells open. Those ${hold(true)}, ${needed(need, inside)}.`,
+          : single ? `${there} leave only the boxed cells open, and ${over(need, inside, inUnit(h.crosses[0], lines[0].unit))}`
+            : `${there} leave only the boxed cells open. Those ${hold(need, inside)}.`,
       `Cross ${it ? 'it' : 'them'} out.`,
     ];
   };

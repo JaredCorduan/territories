@@ -284,7 +284,7 @@ function renderHint() {
   showHighlights(cells, game.p.regions, h);
   $('hint-panel').hidden = !h;
   if (!h) return;
-  $('hint-text').textContent = hintText(h, game.theme, game.p.stars);
+  $('hint-text').textContent = hintText(h, game.theme, game.p.stars, game.p.regions);
   $('hint-apply').hidden = h.kind === 'error';
   $('hint-apply').textContent = h.kind === 'mistake' ? 'Fix' : 'Apply';
 }

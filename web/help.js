@@ -172,7 +172,7 @@ function render(stars, level, examples) {
       row.append(figure('Before', ex, ex.marks, true), figure('After', ex, afterMarks(ex), false));
       const why = document.createElement('p');
       why.className = 'example-text';
-      why.textContent = `Example: ${hintText({ kind: 'move', ...ex.deduction }, themeOf(ex), stars)}`;
+      why.textContent = `Example: ${hintText({ kind: 'move', ...ex.deduction }, themeOf(ex), stars, ex.regions)}`;
       sec.append(row, why);
     }
     return sec;

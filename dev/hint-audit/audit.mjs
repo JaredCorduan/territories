@@ -57,7 +57,7 @@ for (let i = 0; i < puzzles.length; i += STEP) {
     const marks = m.join('');
     const h = JSON.parse(hint(JSON.stringify({ stars: 2, regions: p.regions, marks, solution: p.solution, level: p.level })));
     if (h.kind !== 'move') break;
-    const text = hintText(h, themeFor(p.id, n, null, {}), 2);
+    const text = hintText(h, themeFor(p.id, n, null, {}), 2, p.regions);
     const s = (byRule[h.rule] ||= { hints: 0, counts: [], worst: [] });
     s.hints++;
     if (FALLBACK.test(text)) {
