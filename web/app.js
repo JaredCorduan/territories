@@ -151,10 +151,12 @@ function snapshot() {
   if (game.history.length > 500) game.history.shift();
 }
 
+// A shown hint stays until it is dismissed, applied, or the puzzle is solved:
+// hiding it on every touch shrinks the page and jolts the board.
 function changed() {
-  clearHint();
   const justSolved = !game.solved && isSolved();
   if (justSolved) game.solved = true;
+  if (game.solved) clearHint();
   persist();
   render();
   if (justSolved) celebrate();
@@ -295,6 +297,7 @@ function applyHint() {
   const n = game.n;
   const idx = ([r, c]) => r * n + c;
   snapshot();
+  clearHint();
   if (h.kind === 'mistake') {
     for (const c of h.cells) { game.animal[idx(c)] = false; game.manualX[idx(c)] = false; }
   } else if (h.kind === 'reveal') {
@@ -352,7 +355,7 @@ function wire() {
     if (!prev) return;
     Object.assign(game, prev);
     game.solved = isSolved();
-    clearHint();
+    if (game.solved) clearHint();
     persist();
     render();
   });
@@ -363,6 +366,7 @@ function wire() {
     game.manualX.fill(false);
     game.solved = false;
     game.secs = 0;
+    clearHint();
     changed();
   });
   $('hint').addEventListener('click', askHint);
